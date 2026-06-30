@@ -1,0 +1,19 @@
+[project]
+name = "vggt-pairuav"
+version = "0.0.0"
+description = "基于冻结 VGGT 第三方骨干的 PairUAV 下游代码"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy<2",
+    "Pillow",
+    "torch",
+    "torchvision",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pairuav*"]

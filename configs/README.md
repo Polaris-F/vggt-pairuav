@@ -9,9 +9,8 @@
 - cache、预测结果、训练输出等运行产物默认写入 git 忽略目录;
 - 配置文件应能被 `REPRODUCE.md` 中的命令直接引用。
 
-计划中的文件:
+当前文件:
 
-- `paths.example.env`: 所需环境变量清单,只写占位值;
-- `angle_s0.yaml`: S0 角度头配置;
-- `range_c_rel_rich.yaml`: 独立距离头配置;
-- `smoke.yaml`: 小样本冒烟测试配置。
+- `paths.example.env`: 所需环境变量清单;
+- `angle_s0.json`: S0 角度头配置;
+- `range_c_rel_rich.json`: 独立距离头配置。

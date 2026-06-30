@@ -13,4 +13,6 @@
 
 - `paths.example.env`: 所需环境变量清单;
 - `angle_s0.json`: S0 角度头配置;
-- `range_c_rel_rich.json`: 独立距离头配置。
+- `range_c_rel_rich.json`: 独立距离头配置;
+- `smoke_angle.json`: 小样本角度头冒烟配置;
+- `smoke_range.json`: 小样本距离头冒烟配置。

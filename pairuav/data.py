@@ -14,6 +14,9 @@ from torch.utils.data import Dataset
 from torchvision import transforms as T
 
 
+PAIR_JSON_RE = re.compile(r"^\d{2}_\d{2}\.json$")
+
+
 def extract_int(value: object) -> int | float:
     """从字符串中提取第一个整数,用于自然排序。"""
 
@@ -35,8 +38,8 @@ def iter_json_paths(json_dir: Path) -> list[Path]:
     paths: list[Path] = []
     for child in sorted(json_dir.iterdir(), key=lambda p: (extract_int(p.name), p.name)):
         if child.is_dir():
-            paths.extend(sorted(child.glob("*.json"), key=lambda p: (extract_int(p.stem), p.stem)))
-        elif child.is_file() and child.suffix == ".json":
+            paths.extend(sorted((p for p in child.glob("*.json") if PAIR_JSON_RE.match(p.name)), key=lambda p: (extract_int(p.stem), p.stem)))
+        elif child.is_file() and PAIR_JSON_RE.match(child.name):
             paths.append(child)
     paths = sorted(paths, key=json_sort_key)
     if not paths:

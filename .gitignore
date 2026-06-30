@@ -12,6 +12,7 @@ cache/
 data/
 outputs/
 artifacts/
+workspace/
 *.pt
 *.pth
 *.ckpt

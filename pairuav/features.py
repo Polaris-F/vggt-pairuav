@@ -6,15 +6,16 @@ import argparse
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from vggt.models.vggt import VGGT
-
 from .data import PairImageDataset, pair_collate
+
+if TYPE_CHECKING:
+    from vggt.models.vggt import VGGT
 
 
 def write_json(path: Path, obj: Any) -> None:
@@ -22,8 +23,10 @@ def write_json(path: Path, obj: Any) -> None:
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def build_vggt(device: torch.device, weight: Path) -> VGGT:
+def build_vggt(device: torch.device, weight: Path) -> "VGGT":
     """加载并冻结 VGGT。"""
+
+    from vggt.models.vggt import VGGT
 
     model = VGGT()
     state = torch.load(weight, map_location="cpu")
@@ -34,7 +37,7 @@ def build_vggt(device: torch.device, weight: Path) -> VGGT:
 
 
 @torch.no_grad()
-def extract_pooled_features(vggt: VGGT, images: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+def extract_pooled_features(vggt: "VGGT", images: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
     """使用 VGGT aggregator 最后一层 patch tokens 的 mean/max pooling。"""
 
     with torch.amp.autocast("cuda", dtype=dtype, enabled=images.is_cuda):

@@ -1,0 +1,19 @@
+{
+  "name": "smoke_angle",
+  "input_mode": "ab_diff_prod",
+  "hidden_dim": 128,
+  "depth": 2,
+  "dropout": 0.0,
+  "lr": 0.001,
+  "weight_decay": 0.00005,
+  "batch_size": 64,
+  "epochs": 1,
+  "warmup_epochs": 0.1,
+  "final_lr_frac": 0.1,
+  "grad_clip": 1.0,
+  "rot_weight": 1.0,
+  "trans_weight": 1.0,
+  "task_angle_weight": 0.0,
+  "task_range_weight": 0.0,
+  "coupling_weight": 0.0
+}

@@ -1,0 +1,63 @@
+{
+  "format": "one relative pair-json path per line, relative to PairUAV train json root",
+  "splits": [
+    {
+      "name": "train_balanced_32768",
+      "count": 32768,
+      "sha256": "ae6f171e9cef6faed348a8f5fdd070c673988574321c3661512275b82ccbd212",
+      "buildings": 631,
+      "first": [
+        "0839/01_02.json",
+        "0839/01_11.json",
+        "0839/01_16.json",
+        "0839/01_30.json",
+        "0839/01_34.json"
+      ],
+      "last": [
+        "1567/53_10.json",
+        "1567/54_01.json",
+        "1567/54_08.json",
+        "1567/54_18.json",
+        "1567/54_25.json"
+      ],
+      "frame_pair_min": [
+        1,
+        1
+      ],
+      "frame_pair_max": [
+        54,
+        54
+      ],
+      "file": "train_balanced_32768.txt"
+    },
+    {
+      "name": "val_quick_2048",
+      "count": 2048,
+      "sha256": "b0441003c5fa616d8ec048439bca1f123a8d0303aca3be92b215c9a483e585eb",
+      "buildings": 70,
+      "first": [
+        "1568/01_47.json",
+        "1568/02_54.json",
+        "1568/03_50.json",
+        "1568/03_53.json",
+        "1568/04_02.json"
+      ],
+      "last": [
+        "1650/47_08.json",
+        "1650/47_20.json",
+        "1650/52_30.json",
+        "1650/53_11.json",
+        "1650/54_21.json"
+      ],
+      "frame_pair_min": [
+        1,
+        2
+      ],
+      "frame_pair_max": [
+        54,
+        52
+      ],
+      "file": "val_quick_2048.txt"
+    }
+  ]
+}

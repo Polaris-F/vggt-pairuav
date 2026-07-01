@@ -169,3 +169,17 @@ python -m pairuav.train_range \
   --config configs/smoke_range.json \
   --output-dir "$PAIRUAV_RUN_ROOT/smoke_range"
 ```
+
+## 10. 已知指标
+
+指标均为官方相对误差口径,数值越低越好。验证集结果使用 `data_index/val_quick_2048.txt` 固定的 2,048 个 pair;Codabench 结果来自对应 test 提交,二者数据口径不同,只用于复现锚定。
+
+| 输出 | val angle_rel | val distance_rel | val final | 备注 |
+| --- | ---: | ---: | ---: | --- |
+| 连续输出 | 0.005263 | 0.011554 | 0.008407 | 冻结 VGGT + S0 6DoF 角度头 + C_rel_rich 距离头 |
+| MAP-hard 后处理 | 0.004476 | 0.002096 | 0.003286 | 在连续输出上执行 D 空间 MAP-hard 解码;val D 命中率 91.85% |
+
+| 输出 | Codabench angle_rel | Codabench distance_rel | Codabench final | Codabench ID |
+| --- | ---: | ---: | ---: | --- |
+| 连续输出 | 0.003170 | 0.015414 | 0.009292 | 811088 |
+| MAP-hard 后处理 | 0.002325 | 0.002709 | 0.002517 | 811089 |

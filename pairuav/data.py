@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms as T
 
 
-PAIR_JSON_RE = re.compile(r"^\d{2}_\d{2}\.json$")
+PAIR_JSON_RE = re.compile(r"^\d+(?:_\d+)?\.json$")  # 训练 01_02.json / 测试 0000.json 两种命名
 
 
 def extract_int(value: object) -> int | float:

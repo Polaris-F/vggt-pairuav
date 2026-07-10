@@ -34,3 +34,14 @@ git submodule update --init --recursive
 pip install -e 3rdparty/vggt
 pip install -e .
 ```
+
+## 结果(Codabench 隐藏测试集,官方相对误差口径,越低越好)
+
+| 输出 | final | Codabench 提交 ID |
+| --- | ---: | --- |
+| 连续输出(冻结 VGGT + 角度头 + 距离头) | 0.009292 | 811088 |
+| 连续 + MAP-hard 后处理 | 0.002517 | 811089 |
+| 双距离头门控(gate)连续 | 0.009135 | 822840 |
+| gate + MAP-hard 后处理 | **0.002402** | 822841 |
+
+复现命令见 [REPRODUCE.md](REPRODUCE.md);已知验证集指标与字节级复现说明见其 §11。

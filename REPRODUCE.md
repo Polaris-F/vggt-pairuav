@@ -132,7 +132,58 @@ python -m pairuav.postproc_maphard \
 
 该步骤是纯 NumPy 后处理,读取随包资源中的轨迹采样步长表和验证集拟合权重。
 
-## 9. 小样本冒烟
+## 9. 双距离头门控(gate)
+
+验证集分距离段消融显示:`B_mse_ab` 距离头(输入 `[a,b]`、MSE loss)仅在大距离段优于默认的
+`C_rel_rich`(相对 smooth-L1),两头的交叉点约在 |range| = 80 m。门控方案以连续输出为底,
+仅对基线距离 |range| > 80 m 的行换用 `B_mse_ab` 的距离预测,其余行保持不变;之后可照常接
+MAP-hard。该步骤同样是纯 NumPy 后处理,不重新前向、不读测试标签。
+
+训练第二距离头(与 §6 同一份 cache):
+
+```bash
+python -m pairuav.train_range \
+  --train-cache "$PAIRUAV_CACHE_ROOT/train_nfull_s518" \
+  --val-cache "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
+  --config configs/range_b_mse_ab.json \
+  --output-dir "$PAIRUAV_RUN_ROOT/range"
+```
+
+双距离头 test 推理(在 §7 命令上追加 `--range2-*`,输出三列 `heading range range2`;
+`--start/--end` 可按行区间做多卡/多机分片):
+
+```bash
+python -m pairuav.infer_test \
+  --test-json-dir "$PAIRUAV_TEST_JSON" \
+  --test-image-dir "$PAIRUAV_TEST_IMAGES" \
+  --vggt-weight "$VGGT_WEIGHT" \
+  --angle-run-root "$PAIRUAV_RUN_ROOT/angle_YYYYMMDD_HHMMSS" \
+  --angle-name S0_rich_noc \
+  --angle-ckpt head_best_angle.pt \
+  --range-run-dir "$PAIRUAV_RUN_ROOT/range/C_rel_rich" \
+  --range-ckpt "$PAIRUAV_RUN_ROOT/range/C_rel_rich/range_head_best_distance.pt" \
+  --range2-run-dir "$PAIRUAV_RUN_ROOT/range/B_mse_ab" \
+  --range2-ckpt "$PAIRUAV_RUN_ROOT/range/B_mse_ab/range_head_best_distance.pt" \
+  --out "$PAIRUAV_RUN_ROOT/result_dual.txt" \
+  --pairs-cache "$PAIRUAV_RUN_ROOT/test_pairs_ordered.txt"
+```
+
+门控合成与 MAP-hard(分片时传多个 `--pred file:start`,start 为分片行起点):
+
+```bash
+python -m pairuav.gate_merge \
+  --base-result "$PAIRUAV_RUN_ROOT/result_continuous.txt" \
+  --pred "$PAIRUAV_RUN_ROOT/result_dual.txt:0" \
+  --threshold 80 \
+  --out "$PAIRUAV_RUN_ROOT/result_gate.txt" \
+  --zip "$PAIRUAV_RUN_ROOT/result_gate.zip"
+
+python -m pairuav.postproc_maphard \
+  --pred "$PAIRUAV_RUN_ROOT/result_gate.txt" \
+  --out-dir "$PAIRUAV_RUN_ROOT/gate_maphard"
+```
+
+## 10. 小样本冒烟
 
 如果已有完整特征 cache,可以先切出小样本验证代码链路:
 
@@ -170,7 +221,7 @@ python -m pairuav.train_range \
   --output-dir "$PAIRUAV_RUN_ROOT/smoke_range"
 ```
 
-## 10. 已知指标
+## 11. 已知指标
 
 指标均为官方相对误差口径,数值越低越好。验证集结果使用 `data_index/val_quick_2048.txt` 固定的 2,048 个 pair;Codabench 结果来自对应 test 提交,二者数据口径不同,只用于复现锚定。
 
@@ -183,3 +234,12 @@ python -m pairuav.train_range \
 | --- | ---: | ---: | ---: | --- |
 | 连续输出 | 0.003170 | 0.015414 | 0.009292 | 811088 |
 | MAP-hard 后处理 | 0.002325 | 0.002709 | 0.002517 | 811089 |
+
+| 输出 | Codabench final | Codabench ID |
+| --- | ---: | --- |
+| 双距离头门控(gate)连续 | 0.009135 | 822840 |
+| gate + MAP-hard 后处理 | 0.002402 | 822841 |
+
+门控阈值 80 m 由验证集分距离段消融确定(两个距离头的交叉点)。822840 / 822841 两个归档提交已用
+本仓库 `pairuav.gate_merge` + `pairuav.postproc_maphard` 对归档的分片推理结果做**字节级复现**
+(`result.txt` md5 与归档一致)。

@@ -1,4 +1,10 @@
-"""连续 test 推理入口。"""
+"""连续 test 推理入口。
+
+单距离头时输出两列 `heading range`;同时给出 `--range2-run-dir/--range2-ckpt` 时输出三列
+`heading range range2`(供 `pairuav.gate_merge` 做双距离头门控合成)。
+`--start/--end` 用于多卡/多机分片:各分片推理 pair 清单的 [start, end) 区间,产物按行拼接或交给
+gate_merge 按偏移合并。
+"""
 
 from __future__ import annotations
 
@@ -73,15 +79,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--angle-ckpt", default="head_best_angle.pt")
     parser.add_argument("--range-run-dir", type=Path, required=True)
     parser.add_argument("--range-ckpt", type=Path, required=True)
+    parser.add_argument("--range2-run-dir", type=Path, default=None, help="第二距离头(门控用);与 --range2-ckpt 成对出现")
+    parser.add_argument("--range2-ckpt", type=Path, default=None)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--pairs-cache", type=Path, default=None)
+    parser.add_argument("--start", type=int, default=0, help="分片起点(含),对完整 pair 清单切片")
+    parser.add_argument("--end", type=int, default=0, help="分片终点(不含);0 = 到末尾")
     parser.add_argument("--image-size", type=int, default=518)
     parser.add_argument("--batch-size", type=int, default=24)
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", default="cuda")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if (args.range2_run_dir is None) != (args.range2_ckpt is None):
+        parser.error("--range2-run-dir 与 --range2-ckpt 必须成对出现")
+    return args
 
 
 def main() -> None:
@@ -93,6 +106,10 @@ def main() -> None:
         pairs = pairs[: args.limit]
     elif len(pairs) != EXPECTED_TEST_PAIRS:
         raise ValueError(f"pair count {len(pairs)} != expected {EXPECTED_TEST_PAIRS}")
+    if args.start or args.end:
+        end = args.end or len(pairs)
+        pairs = pairs[args.start: end]
+        print(f"[shard] rows [{args.start}, {end}) -> {len(pairs)} pairs", flush=True)
 
     done = truncate_to_complete_lines(args.out) if args.resume else 0
     if done >= len(pairs):
@@ -105,6 +122,11 @@ def main() -> None:
     angle_head = load_sixdof_head(args.angle_run_root, args.angle_name, args.angle_ckpt, device)
     range_head, range_cfg = load_range_head(args.range_run_dir, args.range_ckpt, device)
     range_input_mode = str(range_cfg["input_mode"])
+    range2_head = None
+    range2_input_mode = ""
+    if args.range2_run_dir is not None:
+        range2_head, range2_cfg = load_range_head(args.range2_run_dir, args.range2_ckpt, device)
+        range2_input_mode = str(range2_cfg["input_mode"])
 
     dataset = PairListDataset(pairs_todo, args.test_image_dir, args.image_size)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=True, collate_fn=image_pair_collate)
@@ -117,7 +139,11 @@ def main() -> None:
             heading = heading_from_rot_torch(rot).detach().cpu().numpy().astype(np.float64)
             range_m = range_head(make_pair_input(feats, range_input_mode)).detach().cpu().numpy().astype(np.float64)
             heading = wrap180(heading)
-            handle.writelines(f"{h:.6f} {r:.6f}\n" for h, r in zip(heading, range_m))
+            if range2_head is None:
+                handle.writelines(f"{h:.6f} {r:.6f}\n" for h, r in zip(heading, range_m))
+            else:
+                range2_m = range2_head(make_pair_input(feats, range2_input_mode)).detach().cpu().numpy().astype(np.float64)
+                handle.writelines(f"{h:.6f} {r:.6f} {r2:.6f}\n" for h, r, r2 in zip(heading, range_m, range2_m))
             done += int(images.shape[0])
             if batch_idx == 0 or batch_idx % 100 == 0:
                 handle.flush()

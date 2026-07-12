@@ -48,7 +48,7 @@ python -m pairuav.features \
   --vggt-weight "$VGGT_WEIGHT" \
   --cache-root "$PAIRUAV_CACHE_ROOT" \
   --image-size 518 \
-  --seed 20260712
+  --seed 2026
 ```
 
 该步骤只调用冻结 VGGT aggregator,并写出 `features.npy`、`heading.npy`、`range.npy`、`json_paths.json` 和 `meta.json`。
@@ -77,7 +77,7 @@ python -m pairuav.train_angle \
   --val-geom "$PAIRUAV_RUN_ROOT/geometry_labels_val.npz" \
   --config configs/angle_s0.json \
   --run-root "$PAIRUAV_RUN_ROOT/angle" \
-  --seed 20260712
+  --seed 2026
 ```
 
 最终连续预测使用该头的旋转 yaw 作为 heading。
@@ -90,7 +90,7 @@ python -m pairuav.train_range \
   --val-cache "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
   --config configs/range_c_rel_rich.json \
   --output-dir "$PAIRUAV_RUN_ROOT/range" \
-  --seed 20260712
+  --seed 2026
 ```
 
 距离头直接从冻结 VGGT pair feature 回归 range,以适配官方距离相对误差口径。
@@ -110,7 +110,7 @@ python -m pairuav.eval_val \
   --range-ckpt "$PAIRUAV_RUN_ROOT/range/C_rel_rich/range_head_best_distance.pt" \
   --range2-ckpt "$PAIRUAV_RUN_ROOT/range/B_mse_ab/range_head_best_distance.pt" \
   --out "$PAIRUAV_RUN_ROOT/val_combo_eval.json" \
-  --seed 20260712
+  --seed 2026
 ```
 
 ```bash
@@ -125,7 +125,7 @@ python -m pairuav.infer_test \
   --range-ckpt "$PAIRUAV_RUN_ROOT/range/C_rel_rich/range_head_best_distance.pt" \
   --out "$PAIRUAV_RUN_ROOT/result_continuous.txt" \
   --pairs-cache "$PAIRUAV_RUN_ROOT/test_pairs_ordered.txt" \
-  --seed 20260712
+  --seed 2026
 ```
 
 ## 8. 可选 MAP-hard 后处理
@@ -153,7 +153,7 @@ python -m pairuav.train_range \
   --val-cache "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
   --config configs/range_b_mse_ab.json \
   --output-dir "$PAIRUAV_RUN_ROOT/range" \
-  --seed 20260712
+  --seed 2026
 ```
 
 双距离头 test 推理(在 §7 命令上追加 `--range2-*`,输出三列 `heading range range2`;
@@ -173,7 +173,7 @@ python -m pairuav.infer_test \
   --range2-ckpt "$PAIRUAV_RUN_ROOT/range/B_mse_ab/range_head_best_distance.pt" \
   --out "$PAIRUAV_RUN_ROOT/result_dual.txt" \
   --pairs-cache "$PAIRUAV_RUN_ROOT/test_pairs_ordered.txt" \
-  --seed 20260712
+  --seed 2026
 ```
 
 门控合成与 MAP-hard(分片时传多个 `--pred file:start`,start 为分片行起点):
@@ -221,14 +221,14 @@ python -m pairuav.train_angle \
   --val-geom "$PAIRUAV_RUN_ROOT/geometry_labels_val_smoke.npz" \
   --config configs/smoke_angle.json \
   --run-root "$PAIRUAV_RUN_ROOT/smoke_angle" \
-  --seed 20260712
+  --seed 2026
 
 python -m pairuav.train_range \
   --train-cache "$PAIRUAV_CACHE_ROOT/train_smoke_n512_s518" \
   --val-cache "$PAIRUAV_CACHE_ROOT/val_smoke_n128_s518" \
   --config configs/smoke_range.json \
   --output-dir "$PAIRUAV_RUN_ROOT/smoke_range" \
-  --seed 20260712
+  --seed 2026
 ```
 
 ## 11. 已知指标

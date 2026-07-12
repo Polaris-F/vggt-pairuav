@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 
-DEFAULT_SEED = 20260712
+DEFAULT_SEED = 2026
 
 
 def seed_everything(seed: int, *, deterministic: bool = True) -> dict[str, Any]:

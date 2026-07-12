@@ -1,7 +1,7 @@
 # Reproducibility
 
 PairUAV 的 PyTorch 入口统一使用 `pairuav.reproducibility.seed_everything`。默认 seed 为
-`20260712`,命令行可用 `--seed` 覆盖。默认开启以下设置:
+`2026`,命令行可用 `--seed` 覆盖。默认开启以下设置:
 
 - Python、NumPy、CPU/CUDA PyTorch RNG 固定;
 - DataLoader shuffle 和 worker 使用显式 generator/worker seed;

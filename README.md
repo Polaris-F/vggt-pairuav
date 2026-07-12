@@ -18,7 +18,7 @@
 
 VGGT 源码保存在 `3rdparty/vggt` 中,原则上保持不修改。所有 PairUAV 相关逻辑都应放在 `pairuav/` 下。
 
-训练、特征抽取和推理入口默认固定随机种子 `20260712` 并记录复现设置。稳定性说明见
+训练、特征抽取和推理入口默认固定随机种子 `2026` 并记录复现设置。稳定性说明见
 [`docs/reproducibility.md`](docs/reproducibility.md)。
 
 ## 目录职责

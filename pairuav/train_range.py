@@ -185,7 +185,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    reproducibility = seed_everything(args.seed, deterministic=args.deterministic)
+    reproducibility = seed_everything(
+        args.seed,
+        deterministic=args.deterministic,
+        matmul_precision="high",
+    )
     args.device_obj = torch.device(args.device if torch.cuda.is_available() else "cpu")
     cfg = load_config(args.config)
     out_dir = args.output_dir / cfg.name

@@ -132,9 +132,11 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     ph, pr_pose, pr_c, pr_b = [], [], [], []
     for s in range(0, feats.shape[0], args.batch_size):
         x = torch.from_numpy(np.asarray(feats[s:s + args.batch_size], dtype=np.float32)).to(device)
+        torch.set_float32_matmul_precision("highest")
         rot, trans = angle(x)
         ph.append(heading_from_rot_torch(rot).cpu().numpy().astype(np.float64))
         pr_pose.append((trans[:, 2] / G.COS45).cpu().numpy().astype(np.float64))
+        torch.set_float32_matmul_precision("high")
         pr_c.append(head_c(make_pair_input(x, mode_c)).cpu().numpy().astype(np.float64))
         if head_b is not None:
             pr_b.append(head_b(make_pair_input(x, mode_b)).cpu().numpy().astype(np.float64))
@@ -206,7 +208,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    seed_everything(args.seed, deterministic=args.deterministic)
+    seed_everything(
+        args.seed,
+        deterministic=args.deterministic,
+        matmul_precision="highest",
+    )
     res = evaluate(args)
     print(json.dumps(res, indent=2, ensure_ascii=False), flush=True)
     if args.out is not None:

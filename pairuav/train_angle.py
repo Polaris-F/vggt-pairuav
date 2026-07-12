@@ -239,7 +239,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    reproducibility = seed_everything(args.seed, deterministic=args.deterministic)
+    # The archived angle-head recipe used PyTorch's default full FP32 matmul.
+    # TF32 ("high") materially regresses the 6D rotation/geodesic objective.
+    reproducibility = seed_everything(
+        args.seed,
+        deterministic=args.deterministic,
+        matmul_precision="highest",
+    )
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     cfg = load_config(args.config)
     run_root = args.run_root.with_name(args.run_root.name + "_" + time.strftime("%Y%m%d_%H%M%S"))

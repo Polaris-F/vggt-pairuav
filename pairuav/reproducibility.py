@@ -13,7 +13,12 @@ import torch
 DEFAULT_SEED = 2026
 
 
-def seed_everything(seed: int, *, deterministic: bool = True) -> dict[str, Any]:
+def seed_everything(
+    seed: int,
+    *,
+    deterministic: bool = True,
+    matmul_precision: str = "high",
+) -> dict[str, Any]:
     """Seed Python, NumPy and PyTorch and return settings for run metadata."""
 
     seed = int(seed)
@@ -31,7 +36,9 @@ def seed_everything(seed: int, *, deterministic: bool = True) -> dict[str, Any]:
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    torch.set_float32_matmul_precision("high")
+    if matmul_precision not in {"highest", "high", "medium"}:
+        raise ValueError(f"unsupported float32 matmul precision: {matmul_precision}")
+    torch.set_float32_matmul_precision(matmul_precision)
     torch.backends.cudnn.benchmark = not deterministic
     torch.backends.cudnn.deterministic = deterministic
     torch.use_deterministic_algorithms(deterministic, warn_only=True)

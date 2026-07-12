@@ -6,7 +6,7 @@
   "dropout": 0.0,
   "lr": 0.0015,
   "weight_decay": 0.00005,
-  "batch_size": 384,
+  "batch_size": 1536,
   "epochs": 90,
   "warmup_epochs": 2.0,
   "final_lr_frac": 0.05,

@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from .features import write_json
 from .heads import RangeMLP, make_pair_input
 from .metrics import circular_angle_abs_error, compute_metrics
+from .reproducibility import DEFAULT_SEED, seed_everything
 
 
 @dataclass
@@ -86,7 +87,13 @@ def eval_model(model: RangeMLP, x_val: torch.Tensor, val_h_pred: torch.Tensor, v
     return official_eval(val_h_pred, model(x_val), val_h, val_r)
 
 
-def train_one(args: argparse.Namespace, cfg: RangeConfig, data: dict[str, torch.Tensor], out_dir: Path) -> dict[str, Any]:
+def train_one(
+    args: argparse.Namespace,
+    cfg: RangeConfig,
+    data: dict[str, torch.Tensor],
+    out_dir: Path,
+    reproducibility: dict[str, Any],
+) -> dict[str, Any]:
     x_train = data[f"x_train_{cfg.input_mode}"]
     x_val = data[f"x_val_{cfg.input_mode}"]
     train_r = data["train_r"]
@@ -115,10 +122,11 @@ def train_one(args: argparse.Namespace, cfg: RangeConfig, data: dict[str, torch.
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
     best: dict[str, Any] | None = None
     history: list[dict[str, Any]] = []
+    shuffle_generator = torch.Generator(device=args.device_obj).manual_seed(args.seed)
     t0 = time.time()
     for epoch in range(cfg.epochs):
         model.train()
-        perm = torch.randperm(x_train.shape[0], device=args.device_obj)
+        perm = torch.randperm(x_train.shape[0], device=args.device_obj, generator=shuffle_generator)
         totals = {"loss": 0.0, "range_mae": 0.0, "n": 0}
         for start in range(0, x_train.shape[0], cfg.batch_size):
             ids = perm[start: start + cfg.batch_size]
@@ -145,7 +153,13 @@ def train_one(args: argparse.Namespace, cfg: RangeConfig, data: dict[str, torch.
             print(f"[{cfg.name}] ep={epoch} dist={val['distance_rel_error']:.6f} range_mae={val['range_mae_m']:.3f}", flush=True)
     assert best is not None
     torch.save(model.state_dict(), out_dir / "range_head_last.pt")
-    result = {"config": asdict(cfg), "history": history, "best": best, "elapsed_sec": time.time() - t0}
+    result = {
+        "config": asdict(cfg),
+        "reproducibility": reproducibility,
+        "history": history,
+        "best": best,
+        "elapsed_sec": time.time() - t0,
+    }
     write_json(out_dir / "result.json", result)
     return result
 
@@ -159,11 +173,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--range-limit", type=float, default=132.0)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--log-every", type=int, default=10)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--deterministic",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="request deterministic PyTorch algorithms (default: enabled)",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    reproducibility = seed_everything(args.seed, deterministic=args.deterministic)
     args.device_obj = torch.device(args.device if torch.cuda.is_available() else "cpu")
     cfg = load_config(args.config)
     out_dir = args.output_dir / cfg.name
@@ -184,7 +206,7 @@ def main() -> None:
     for mode in {cfg.input_mode}:
         data[f"x_train_{mode}"] = make_pair_input(train_feats, mode)
         data[f"x_val_{mode}"] = make_pair_input(val_feats, mode)
-    train_one(args, cfg, data, out_dir)
+    train_one(args, cfg, data, out_dir, reproducibility)
 
 
 if __name__ == "__main__":

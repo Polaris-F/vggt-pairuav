@@ -20,6 +20,7 @@ from .data import PairListDataset, image_pair_collate, load_test_pairs
 from .features import build_vggt, extract_pooled_features
 from .heads import RangeMLP, SixDofHead, heading_from_rot_torch, make_pair_input
 from .metrics import wrap180
+from .reproducibility import DEFAULT_SEED, dataloader_generator, seed_everything, seed_worker
 
 
 EXPECTED_TEST_PAIRS = 2_773_116
@@ -91,6 +92,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--deterministic",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="request deterministic PyTorch algorithms (default: enabled)",
+    )
     args = parser.parse_args()
     if (args.range2_run_dir is None) != (args.range2_ckpt is None):
         parser.error("--range2-run-dir 与 --range2-ckpt 必须成对出现")
@@ -99,6 +107,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    seed_everything(args.seed, deterministic=args.deterministic)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     pairs = load_test_pairs(args.test_json_dir, args.pairs_cache)
@@ -129,7 +138,16 @@ def main() -> None:
         range2_input_mode = str(range2_cfg["input_mode"])
 
     dataset = PairListDataset(pairs_todo, args.test_image_dir, args.image_size)
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, pin_memory=True, collate_fn=image_pair_collate)
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.workers,
+        pin_memory=True,
+        collate_fn=image_pair_collate,
+        worker_init_fn=seed_worker,
+        generator=dataloader_generator(args.seed),
+    )
     mode = "a" if done > 0 else "w"
     with args.out.open(mode, encoding="utf-8") as handle, torch.inference_mode():
         for batch_idx, images in enumerate(loader):

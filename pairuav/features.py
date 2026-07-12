@@ -13,6 +13,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from .data import PairImageDataset, pair_collate
+from .reproducibility import DEFAULT_SEED, dataloader_generator, seed_everything, seed_worker
 
 if TYPE_CHECKING:
     from vggt.models.vggt import VGGT
@@ -71,6 +72,7 @@ def prepare_feature_cache(
     workers: int,
     device: torch.device,
     vggt_weight: Path,
+    seed: int,
     force: bool = False,
 ) -> dict[str, Any]:
     """抽取冻结 VGGT 特征并写入 cache 目录。"""
@@ -89,6 +91,8 @@ def prepare_feature_cache(
         pin_memory=True,
         collate_fn=pair_collate,
         drop_last=False,
+        worker_init_fn=seed_worker,
+        generator=dataloader_generator(seed),
     )
     model = build_vggt(device, vggt_weight)
     dtype = torch.bfloat16 if device.type == "cuda" and torch.cuda.get_device_capability(device)[0] >= 8 else torch.float16
@@ -139,6 +143,7 @@ def prepare_feature_cache(
         "range_mean": float(np.asarray(range_arr).mean()),
         "range_std": float(np.asarray(range_arr).std()),
         "heading_mean": float(np.asarray(heading_arr).mean()),
+        "seed": int(seed),
     }
     write_json(cache_dir / "meta.json", meta)
     write_json(cache_dir / "json_paths.json", json_paths)
@@ -162,11 +167,19 @@ def parse_cache_args() -> argparse.Namespace:
     parser.add_argument("--max-val-pairs", type=int, default=None)
     parser.add_argument("--force-cache", action="store_true")
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--deterministic",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="request deterministic PyTorch algorithms (default: enabled)",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_cache_args()
+    seed_everything(args.seed, deterministic=args.deterministic)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     train_tag = f"train_n{args.max_train_pairs or 'full'}_s{args.image_size}"
     val_tag = f"val_n{args.max_val_pairs or 'full'}_s{args.image_size}"
@@ -181,6 +194,7 @@ def main() -> None:
         workers=args.workers,
         device=device,
         vggt_weight=args.vggt_weight,
+        seed=args.seed,
         force=args.force_cache,
     )
     prepare_feature_cache(
@@ -194,6 +208,7 @@ def main() -> None:
         workers=args.workers,
         device=device,
         vggt_weight=args.vggt_weight,
+        seed=args.seed,
         force=args.force_cache,
     )
 

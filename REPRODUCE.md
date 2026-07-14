@@ -1,8 +1,15 @@
-# 复现指南
+# Reproduction Guide
 
-本文档是 PairUAV-on-VGGT 实现的命令级复现入口。
+This repository exposes two separate workflows. Their claims and assets must not be mixed.
 
-## 1. 环境准备
+1. **Archived competition submission:** run the released task-head checkpoints on the released frozen test-pair
+   feature cache, then apply the historical 80 m gate and MAP-hard decoder. This reconstructs the topology of
+   Codabench submission `822841` (`0.002402`, rank 5).
+2. **Paper LaMP method:** start from fixed pair indexes, train with recorded seeds, and report validation statistics.
+   The historical competition training did not preserve RNG state, so deterministic retraining is a stability claim,
+   not a promise to regenerate the archived checkpoint byte-for-byte.
+
+## 1. Environment
 
 ```bash
 git submodule update --init --recursive
@@ -10,246 +17,152 @@ pip install -e 3rdparty/vggt
 pip install -e .
 ```
 
-路径变量可参考 `configs/paths.example.env` 设置。
-
-## 2. 固定训练/验证 split
+The VGGT submodule is fixed at `a288dd0f14786c93483e45524328726ab7b1b4ce`. Run the CPU checks before a GPU job:
 
 ```bash
-python -m pairuav.index materialize \
-  --index data_index/train_balanced_32768.txt \
-  --source-json-dir "$PAIRUAV_ALL_TRAIN_JSON" \
-  --out-json-dir "$PAIRUAV_TRAIN_JSON"
-
-python -m pairuav.index materialize \
-  --index data_index/val_quick_2048.txt \
-  --source-json-dir "$PAIRUAV_ALL_TRAIN_JSON" \
-  --out-json-dir "$PAIRUAV_VAL_JSON"
+python -m unittest discover -s tests -v
+python -m pairuav.index verify-manifest \
+  --manifest data_index/manifest.json \
+  --index-root data_index
 ```
 
-如果直接复用已抽取的特征 cache,先校验 cache 顺序:
+## 2. Authoritative Configurations
+
+| target | angle head | range head(s) | post-processing |
+|---|---|---|---|
+| archived submission | `configs/submission/angle_s0.json` | `range_c_rel_rich.json` + `range_b_mse_ab.json` | 80 m gate + MAP-hard |
+| paper LaMP | `configs/lamp/angle_s0.json` | `range_ab_relsmooth.json` | optional MAP-hard |
+
+The paper range head consumes only `[a,b]`. The archived C head consumes `[a,b,a-b,a*b]`. Root-level config files
+remain for compatibility with older commands, but the scripts below use only the grouped configurations.
+
+## 3. Archived Submission, One Command
+
+Place the downloaded release bundle under `artifacts/competition_submission/`. The complete layout is documented in
+`artifacts/README.md`; the required model-level files are:
+
+```text
+artifacts/competition_submission/
+├── MANIFEST.sha256
+├── checkpoints/
+│   ├── S0_rich_noc/head_best_angle.pt
+│   ├── C_rel_rich/range_head_best_distance.pt
+│   └── B_mse_ab/range_head_best_distance.pt
+├── cache/test_pairs_s518/
+│   ├── features.npy       # (2773116, 2, 4096), official pair order
+│   └── meta.json
+└── submissions/
+    ├── result_continuous.zip
+    └── result_maphard.zip
+```
+
+Run:
 
 ```bash
-python -m pairuav.index verify-cache \
-  --index data_index/train_balanced_32768.txt \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/train_nfull_s518"
-
-python -m pairuav.index verify-cache \
-  --index data_index/val_quick_2048.txt \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/val_nfull_s518"
+bash scripts/reproduce_submission.sh
 ```
 
-## 3. 抽取冻结 VGGT 特征
+The script verifies `MANIFEST.sha256`, runs the three archived heads directly on the cache, applies the historical
+gate, and writes:
+
+```text
+outputs/submission_<timestamp>/
+├── raw_heads.txt                 # heading, C range, B range
+├── result_continuous.txt         # heading, gated range
+├── result_continuous.txt.meta.json
+├── maphard/result.txt
+├── maphard/result.zip
+├── workflow.env
+└── workflow.log
+```
+
+Custom locations can be passed positionally or through `PAIRUAV_SUBMISSION_ASSETS`, `PAIRUAV_SUBMISSION_CACHE`, and
+`PAIRUAV_SUBMISSION_RUN_DIR`:
 
 ```bash
-python -m pairuav.features \
-  --train-json-dir "$PAIRUAV_TRAIN_JSON" \
-  --val-json-dir "$PAIRUAV_VAL_JSON" \
-  --image-dir "$PAIRUAV_TRAIN_IMAGES" \
-  --vggt-weight "$VGGT_WEIGHT" \
-  --cache-root "$PAIRUAV_CACHE_ROOT" \
-  --image-size 518 \
-  --seed 2026
+bash scripts/reproduce_submission.sh /path/to/assets /path/to/test_feature_cache
 ```
 
-该步骤只调用冻结 VGGT aggregator,并写出 `features.npy`、`heading.npy`、`range.npy`、`json_paths.json` 和 `meta.json`。
+`pairuav.infer_test` remains available as a raw-image fallback, but it reruns VGGT and is not the default release
+workflow.
 
-## 4. 生成 6DoF 辅助标签
+## 4. Paper LaMP, One Command
+
+Set the dataset and VGGT paths. `configs/paths.example.env` is a template:
 
 ```bash
-python -m pairuav.geometry \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/train_nfull_s518" \
-  --out "$PAIRUAV_RUN_ROOT/geometry_labels_train.npz"
-
-python -m pairuav.geometry \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
-  --out "$PAIRUAV_RUN_ROOT/geometry_labels_val.npz"
+export PAIRUAV_ALL_TRAIN_JSON=/path/to/all/train/pair_json
+export PAIRUAV_TRAIN_IMAGES=/path/to/train/images
+export VGGT_WEIGHT=/path/to/vggt/model.pt
 ```
 
-本实现依据 University-1652 公开的螺旋采集过程,定义一个规范的 object-centric 轨迹参数化;给定配对帧索引,即可闭式生成用于训练的 6DoF 辅助标签。
-
-## 5. 训练 S0 角度头
+The default command uses the released 32K/2K indexes:
 
 ```bash
-python -m pairuav.train_angle \
-  --train-cache "$PAIRUAV_CACHE_ROOT/train_nfull_s518" \
-  --val-cache "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
-  --train-geom "$PAIRUAV_RUN_ROOT/geometry_labels_train.npz" \
-  --val-geom "$PAIRUAV_RUN_ROOT/geometry_labels_val.npz" \
-  --config configs/angle_s0.json \
-  --run-root "$PAIRUAV_RUN_ROOT/angle" \
-  --seed 2026
+bash scripts/train_lamp.sh
 ```
 
-最终连续预测使用该头的旋转 yaw 作为 heading。
-
-## 6. 训练独立距离头
+Equivalently, pass other index files to change the data scale without changing code:
 
 ```bash
-python -m pairuav.train_range \
-  --train-cache "$PAIRUAV_CACHE_ROOT/train_nfull_s518" \
-  --val-cache "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
-  --config configs/range_c_rel_rich.json \
-  --output-dir "$PAIRUAV_RUN_ROOT/range" \
-  --seed 2026
+bash scripts/train_lamp.sh \
+  /path/to/train_index.txt \
+  /path/to/val_index.txt \
+  /path/to/new_run_directory
 ```
 
-距离头直接从冻结 VGGT pair feature 回归 range,以适配官方距离相对误差口径。
-该训练入口用验证集 heading 标签作为占位来隔离距离误差,模型选择以 `distance_rel_error` 为准。
-公开的 C 配方使用 `lr=1e-3,epochs=240,batch=512`;历史提交对应的旧优化预算保存在
-`configs/range_c_rel_rich_legacy.json`,但原始 seed/RNG 状态未保存,不能保证从头重现归档权重。
+The workflow performs, in order:
 
-## 7. 连续 test 推理
+1. materialize the indexed pair JSON splits;
+2. jointly encode each pair with the frozen VGGT and cache pooled features;
+3. verify cache order against both indexes;
+4. reconstruct the closed-form 6-DoF labels;
+5. train the 6-DoF pose head with FP32 matmul precision `highest`;
+6. train one `[a,b] + rel_smooth` range head with precision `high`;
+7. evaluate continuous and MAP-hard outputs on the validation cache.
 
-在验证集上组合评估已有 checkpoint:
+Outputs are self-contained under `outputs/lamp_seed<seed>_<timestamp>/`, including caches, geometry labels,
+checkpoints, `metrics.json`, `workflow.env`, and `workflow.log`.
+
+### Reuse an existing VGGT cache
+
+To avoid rerunning VGGT, provide both caches. The script still uses the supplied indexes to verify count and pair
+order before training:
 
 ```bash
-python -m pairuav.eval_val \
-  --val-cache "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
-  --val-geom "$PAIRUAV_RUN_ROOT/geometry_labels_val.npz" \
-  --angle-ckpt "$PAIRUAV_RUN_ROOT/angle_YYYYMMDD_HHMMSS/S0_rich_noc/head_best_angle.pt" \
-  --range-ckpt "$PAIRUAV_RUN_ROOT/range/C_rel_rich/range_head_best_distance.pt" \
-  --range2-ckpt "$PAIRUAV_RUN_ROOT/range/B_mse_ab/range_head_best_distance.pt" \
-  --out "$PAIRUAV_RUN_ROOT/val_combo_eval.json" \
-  --seed 2026
+export PAIRUAV_TRAIN_CACHE=/path/to/train_balanced_32768_cache
+export PAIRUAV_VAL_CACHE=/path/to/val_quick_2048_cache
+bash scripts/train_lamp.sh
 ```
 
-```bash
-python -m pairuav.infer_test \
-  --test-json-dir "$PAIRUAV_TEST_JSON" \
-  --test-image-dir "$PAIRUAV_TEST_IMAGES" \
-  --vggt-weight "$VGGT_WEIGHT" \
-  --angle-run-root "$PAIRUAV_RUN_ROOT/angle_YYYYMMDD_HHMMSS" \
-  --angle-name S0_rich_noc \
-  --angle-ckpt head_best_angle.pt \
-  --range-run-dir "$PAIRUAV_RUN_ROOT/range/C_rel_rich" \
-  --range-ckpt "$PAIRUAV_RUN_ROOT/range/C_rel_rich/range_head_best_distance.pt" \
-  --out "$PAIRUAV_RUN_ROOT/result_continuous.txt" \
-  --pairs-cache "$PAIRUAV_RUN_ROOT/test_pairs_ordered.txt" \
-  --seed 2026
-```
+Setting only one cache is rejected. A cache with a different pair order is also rejected.
 
-## 8. 可选 MAP-hard 后处理
+## 5. Important Entry Points
 
-```bash
-python -m pairuav.postproc_maphard \
-  --pred "$PAIRUAV_RUN_ROOT/result_continuous.txt" \
-  --out-dir "$PAIRUAV_RUN_ROOT/maphard"
-```
+- `python -m pairuav.features`: frozen joint VGGT feature extraction;
+- `python -m pairuav.geometry`: closed-form 6-DoF label generation;
+- `python -m pairuav.train_angle`: pose-head training;
+- `python -m pairuav.train_range`: range-head training;
+- `python -m pairuav.eval_val`: continuous and MAP-hard validation metrics;
+- `python -m pairuav.infer_cache`: task-head inference from an existing feature cache;
+- `python -m pairuav.infer_test`: raw-image test inference;
+- `python -m pairuav.postproc_maphard`: pose-set decoding.
 
-该步骤是纯 NumPy 后处理,读取随包资源中的轨迹采样步长表和验证集拟合权重。
+All training commands require an explicit config and refuse nonempty output directories. Existing caches and outputs
+are not overwritten implicitly.
 
-## 9. 双距离头门控(gate)
+## 6. Verified Anchors
 
-验证集分距离段消融显示:`B_mse_ab` 距离头(输入 `[a,b]`、MSE loss)仅在大距离段优于默认的
-`C_rel_rich`(相对 smooth-L1),两头的交叉点约在 |range| = 80 m。门控方案以连续输出为底,
-仅对基线距离 |range| > 80 m 的行换用 `B_mse_ab` 的距离预测,其余行保持不变;之后可照常接
-MAP-hard。该步骤同样是纯 NumPy 后处理,不重新前向、不读测试标签。
+The archived hidden-test submission is `0.009135` before MAP-hard and `0.002402` after MAP-hard. Hidden labels are
+not available locally.
 
-训练第二距离头(与 §6 同一份 cache):
+The validation values below all use `data_index/val_quick_2048.txt`:
 
-```bash
-python -m pairuav.train_range \
-  --train-cache "$PAIRUAV_CACHE_ROOT/train_nfull_s518" \
-  --val-cache "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
-  --config configs/range_b_mse_ab.json \
-  --output-dir "$PAIRUAV_RUN_ROOT/range" \
-  --seed 2026
-```
+| system | seeds | continuous final | MAP-hard final |
+|---|---:|---:|---:|
+| archived submission weights, C/B gate | archived weights | `0.008060` | `0.003056` |
+| historical topology, deterministic retraining | 5 | `0.006967 +/- 0.000166` | `0.003230 +/- 0.000139` |
+| paper LaMP, one `[a,b]` range head | 3 | `0.005907 +/- 0.000070` | `0.003134 +/- 0.000119` |
 
-双距离头 test 推理(在 §7 命令上追加 `--range2-*`,输出三列 `heading range range2`;
-`--start/--end` 可按行区间做多卡/多机分片):
-
-```bash
-python -m pairuav.infer_test \
-  --test-json-dir "$PAIRUAV_TEST_JSON" \
-  --test-image-dir "$PAIRUAV_TEST_IMAGES" \
-  --vggt-weight "$VGGT_WEIGHT" \
-  --angle-run-root "$PAIRUAV_RUN_ROOT/angle_YYYYMMDD_HHMMSS" \
-  --angle-name S0_rich_noc \
-  --angle-ckpt head_best_angle.pt \
-  --range-run-dir "$PAIRUAV_RUN_ROOT/range/C_rel_rich" \
-  --range-ckpt "$PAIRUAV_RUN_ROOT/range/C_rel_rich/range_head_best_distance.pt" \
-  --range2-run-dir "$PAIRUAV_RUN_ROOT/range/B_mse_ab" \
-  --range2-ckpt "$PAIRUAV_RUN_ROOT/range/B_mse_ab/range_head_best_distance.pt" \
-  --out "$PAIRUAV_RUN_ROOT/result_dual.txt" \
-  --pairs-cache "$PAIRUAV_RUN_ROOT/test_pairs_ordered.txt" \
-  --seed 2026
-```
-
-门控合成与 MAP-hard(分片时传多个 `--pred file:start`,start 为分片行起点):
-
-```bash
-python -m pairuav.gate_merge \
-  --base-result "$PAIRUAV_RUN_ROOT/result_continuous.txt" \
-  --pred "$PAIRUAV_RUN_ROOT/result_dual.txt:0" \
-  --threshold 80 \
-  --out "$PAIRUAV_RUN_ROOT/result_gate.txt" \
-  --zip "$PAIRUAV_RUN_ROOT/result_gate.zip"
-
-python -m pairuav.postproc_maphard \
-  --pred "$PAIRUAV_RUN_ROOT/result_gate.txt" \
-  --out-dir "$PAIRUAV_RUN_ROOT/gate_maphard"
-```
-
-## 10. 小样本冒烟
-
-如果已有完整特征 cache,可以先切出小样本验证代码链路:
-
-```bash
-python -m pairuav.cache slice \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/train_nfull_s518" \
-  --out-dir "$PAIRUAV_CACHE_ROOT/train_smoke_n512_s518" \
-  --limit 512
-
-python -m pairuav.cache slice \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/val_nfull_s518" \
-  --out-dir "$PAIRUAV_CACHE_ROOT/val_smoke_n128_s518" \
-  --limit 128
-
-python -m pairuav.geometry \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/train_smoke_n512_s518" \
-  --out "$PAIRUAV_RUN_ROOT/geometry_labels_train_smoke.npz"
-
-python -m pairuav.geometry \
-  --cache-dir "$PAIRUAV_CACHE_ROOT/val_smoke_n128_s518" \
-  --out "$PAIRUAV_RUN_ROOT/geometry_labels_val_smoke.npz"
-
-python -m pairuav.train_angle \
-  --train-cache "$PAIRUAV_CACHE_ROOT/train_smoke_n512_s518" \
-  --val-cache "$PAIRUAV_CACHE_ROOT/val_smoke_n128_s518" \
-  --train-geom "$PAIRUAV_RUN_ROOT/geometry_labels_train_smoke.npz" \
-  --val-geom "$PAIRUAV_RUN_ROOT/geometry_labels_val_smoke.npz" \
-  --config configs/smoke_angle.json \
-  --run-root "$PAIRUAV_RUN_ROOT/smoke_angle" \
-  --seed 2026
-
-python -m pairuav.train_range \
-  --train-cache "$PAIRUAV_CACHE_ROOT/train_smoke_n512_s518" \
-  --val-cache "$PAIRUAV_CACHE_ROOT/val_smoke_n128_s518" \
-  --config configs/smoke_range.json \
-  --output-dir "$PAIRUAV_RUN_ROOT/smoke_range" \
-  --seed 2026
-```
-
-## 11. 已知指标
-
-指标均为官方相对误差口径,数值越低越好。验证集结果使用 `data_index/val_quick_2048.txt` 固定的 2,048 个 pair;Codabench 结果来自对应 test 提交,二者数据口径不同,只用于复现锚定。
-
-| 输出 | val angle_rel | val distance_rel | val final | 备注 |
-| --- | ---: | ---: | ---: | --- |
-| 连续输出 | 0.005263 | 0.011554 | 0.008407 | 冻结 VGGT + S0 6DoF 角度头 + C_rel_rich 距离头 |
-| MAP-hard 后处理 | 0.004476 | 0.002096 | 0.003286 | 在连续输出上执行 D 空间 MAP-hard 解码;val D 命中率 91.85% |
-
-| 输出 | Codabench angle_rel | Codabench distance_rel | Codabench final | Codabench ID |
-| --- | ---: | ---: | ---: | --- |
-| 连续输出 | 0.003170 | 0.015414 | 0.009292 | 811088 |
-| MAP-hard 后处理 | 0.002325 | 0.002709 | 0.002517 | 811089 |
-
-| 输出 | Codabench final | Codabench ID |
-| --- | ---: | --- |
-| 双距离头门控(gate)连续 | 0.009135 | 822840 |
-| gate + MAP-hard 后处理 | 0.002402 | 822841 |
-
-门控阈值 80 m 由验证集分距离段消融确定(两个距离头的交叉点)。822840 / 822841 两个归档提交已用
-本仓库 `pairuav.gate_merge` + `pairuav.postproc_maphard` 对归档的分片推理结果做**字节级复现**
-(`result.txt` md5 与归档一致)。
+The second range head and 80 m gate are retained solely to reproduce the competition entry. Multi-seed analysis did
+not show a reliable gate benefit, and the paper method removes both.

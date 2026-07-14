@@ -1,22 +1,58 @@
 # Reproducibility
 
-PairUAV 的 PyTorch 入口统一使用 `pairuav.reproducibility.seed_everything`。默认 seed 为
-`2026`,命令行可用 `--seed` 覆盖。默认开启以下设置:
+## Two Claims
 
-- Python、NumPy、CPU/CUDA PyTorch RNG 固定;
-- DataLoader shuffle 和 worker 使用显式 generator/worker seed;
-- `torch.set_float32_matmul_precision("high")`;
-- cuDNN benchmark 关闭、deterministic 开启;
-- PyTorch deterministic algorithms 以 `warn_only=True` 请求。
+- The official Codabench result is reproduced with archived checkpoints and their SHA256 manifest. The original
+  training did not preserve a seed or RNG state.
+- From-scratch experiments use fixed seeds beginning at `2026` and report mean plus sample standard deviation.
 
-训练产物的 `result.json` 和角度头的 `summary.json` 记录完整复现设置。固定 seed 主要保证同一
-软件栈和同类 GPU 上可重放;跨 CUDA、PyTorch 或 GPU 架构仍可能出现浮点舍入差异。
+These are complementary claims. Deterministic retraining is not expected to regenerate the historical checkpoint
+byte-for-byte.
 
-## C distance head
+## Randomness Controls
 
-历史 C 配方 `lr=2e-3,epochs=120,batch=512` 对初始化敏感,且验证集最佳点贴近训练终点。
-公开默认配置已改为 `lr=1e-3,epochs=240,batch=512`,模型结构、输入和 `rel_smooth` loss 不变。
-旧参数保存在 `configs/range_c_rel_rich_legacy.json`,仅用于解释历史归档权重。
+PyTorch entry points call `pairuav.reproducibility.seed_everything` and record:
 
-论文实验应显式记录 seed。完整数据尺度曲线先使用同一 seed 比较趋势,随后在关键尺度运行多个
-seed 并报告 mean、sample standard deviation 和 worst run。
+- Python, NumPy, CPU PyTorch, and CUDA PyTorch RNG seeds;
+- explicit DataLoader or GPU shuffle generators;
+- cuDNN benchmark and deterministic settings;
+- `CUBLAS_WORKSPACE_CONFIG`;
+- PyTorch and CUDA versions;
+- the selected float32 matmul precision.
+
+`PYTHONHASHSEED` is also exported for child processes. Python reads its own hash seed at interpreter startup, so callers
+requiring hash-level determinism should additionally launch commands with `PYTHONHASHSEED=2026`.
+
+PyTorch deterministic algorithms are requested with `warn_only=True`. The released MLP-head training path is
+deterministic on the tested software/GPU stack, but different CUDA, PyTorch, or GPU architectures may still change
+floating-point rounding.
+
+## Numeric Precision
+
+Precision is intentionally entry-specific:
+
+| entry | matmul precision | reason |
+|---|---|---|
+| `train_angle` | `highest` | TF32 materially regresses the 6D rotation/geodesic objective |
+| `train_range` | `high` | matches the range-head training recipe |
+| `features`, `infer_test`, `infer_cache`, `eval_val` | `high` | matches the archived submission inference path |
+
+Do not replace the angle training setting with a global TF32 default.
+
+## Released Configuration Groups
+
+- `configs/submission/` records the archived competition topology: rich S0 angle head, rich C range head, B range
+  head, an 80 m gate, and MAP-hard. The historical C recipe used `lr=2e-3` for 120 epochs.
+- `configs/lamp/` records the paper method: the same 6-DoF-supervised S0 angle head and one `[a,b]` range head
+  trained with `rel_smooth`, `lr=1e-3`, and 240 epochs. There is no second range head or gate.
+- Root-level head configs remain only for compatibility with older commands.
+
+Paper-method validation anchors on `val_quick_2048` (`n=3`):
+
+| output | final |
+|---|---:|
+| one `[a,b]` range head, continuous | `0.005907 +/- 0.000070` |
+| one `[a,b]` range head + MAP-hard | `0.003134 +/- 0.000119` |
+
+The historical C/B gate remains available because it was part of submission `822841`; later multi-seed analysis did
+not find a reliable gain over one C head, and the paper method removes it.

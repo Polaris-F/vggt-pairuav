@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import random
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,20 @@ import torch
 
 
 DEFAULT_SEED = 2026
+
+
+def prepare_run_dir(path: Path) -> Path:
+    """Create a run directory without overwriting an earlier run."""
+
+    path = Path(path)
+    if path.exists():
+        if not path.is_dir():
+            raise FileExistsError(f"run path exists and is not a directory: {path}")
+        if any(path.iterdir()):
+            raise FileExistsError(f"run directory is not empty; choose a new output path: {path}")
+        return path
+    path.mkdir(parents=True)
+    return path
 
 
 def seed_everything(

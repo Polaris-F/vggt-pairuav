@@ -1,0 +1,10 @@
+{
+  "name": "submission_822841",
+  "description": "Archived competition topology used for Codabench submission 822841.",
+  "angle_config": "angle_s0.json",
+  "range_config": "range_c_rel_rich.json",
+  "range2_config": "range_b_mse_ab.json",
+  "gate_threshold_m": 80.0,
+  "decoder": "maphard",
+  "expected_test_pairs": 2773116
+}

@@ -1,5 +1,5 @@
 {
-  "name": "C_rel_rich_legacy",
+  "name": "C_rel_rich",
   "input_mode": "ab_diff_prod",
   "loss": "rel_smooth",
   "hidden_dim": 512,

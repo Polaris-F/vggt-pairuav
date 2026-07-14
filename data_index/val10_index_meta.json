@@ -80,6 +80,8 @@
   "sets": {
     "val10_ongrid_2048": {
       "n_pairs": 2048,
+      "unique_pairs": 2022,
+      "duplicate_rows": 26,
       "n_buildings": 70,
       "image_root": "UniV 45°/10fps  (train/drone,270 帧/楼)",
       "frames_in": [
@@ -99,6 +101,8 @@
     },
     "val10_offframe_2048": {
       "n_pairs": 2048,
+      "unique_pairs": 2044,
+      "duplicate_rows": 4,
       "n_buildings": 70,
       "image_root": "UniV 45°/10fps  (train/drone,270 帧/楼)",
       "frames_in": [
@@ -118,6 +122,8 @@
     },
     "val10_offgrid_2048": {
       "n_pairs": 2048,
+      "unique_pairs": 2047,
+      "duplicate_rows": 1,
       "n_buildings": 70,
       "image_root": "UniV 45°/10fps  (train/drone,270 帧/楼)",
       "frames_in": [

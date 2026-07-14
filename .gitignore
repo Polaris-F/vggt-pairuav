@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 
 .env
+configs/paths.env
 .venv/
 venv/
 
@@ -11,7 +12,8 @@ runs/
 cache/
 data/
 outputs/
-artifacts/
+artifacts/*
+!artifacts/README.md
 workspace/
 *.pt
 *.pth

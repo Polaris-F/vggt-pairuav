@@ -1,0 +1,19 @@
+{
+  "name": "S0_rich_noc",
+  "input_mode": "ab_diff_prod",
+  "hidden_dim": 1024,
+  "depth": 3,
+  "dropout": 0.0,
+  "lr": 0.0015,
+  "weight_decay": 0.00005,
+  "batch_size": 384,
+  "epochs": 90,
+  "warmup_epochs": 2.0,
+  "final_lr_frac": 0.05,
+  "grad_clip": 1.0,
+  "rot_weight": 1.0,
+  "trans_weight": 1.0,
+  "task_angle_weight": 0.0,
+  "task_range_weight": 0.0,
+  "coupling_weight": 0.0
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -22,6 +23,14 @@ if TYPE_CHECKING:
 def write_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_vggt(device: torch.device, weight: Path) -> "VGGT":
@@ -51,13 +60,32 @@ def extract_pooled_features(vggt: "VGGT", images: torch.Tensor, dtype: torch.dty
 
 
 def cache_complete(cache_dir: Path) -> bool:
-    return all((cache_dir / name).exists() for name in [
+    required = [
         "features.npy",
         "heading.npy",
         "range.npy",
         "json_paths.json",
         "meta.json",
-    ])
+    ]
+    if not all((cache_dir / name).exists() for name in required):
+        return False
+    try:
+        meta = json.loads((cache_dir / "meta.json").read_text(encoding="utf-8"))
+        paths = json.loads((cache_dir / "json_paths.json").read_text(encoding="utf-8"))
+        samples = int(meta["samples"])
+        features = np.load(cache_dir / "features.npy", mmap_mode="r")
+        heading = np.load(cache_dir / "heading.npy", mmap_mode="r")
+        range_m = np.load(cache_dir / "range.npy", mmap_mode="r")
+        return (
+            isinstance(paths, list)
+            and len(paths) == samples
+            and features.ndim == 3
+            and features.shape[:2] == (samples, 2)
+            and heading.shape == (samples,)
+            and range_m.shape == (samples,)
+        )
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+        return False
 
 
 def prepare_feature_cache(
@@ -72,15 +100,27 @@ def prepare_feature_cache(
     workers: int,
     device: torch.device,
     vggt_weight: Path,
+    vggt_weight_sha256: str,
     seed: int,
+    reproducibility: dict[str, Any],
     force: bool = False,
 ) -> dict[str, Any]:
     """抽取冻结 VGGT 特征并写入 cache 目录。"""
 
     cache_dir = Path(cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    if cache_complete(cache_dir) and not force:
+    expected_files = {"features.npy", "heading.npy", "range.npy", "json_paths.json", "meta.json"}
+    existing = sorted(path.name for path in cache_dir.iterdir() if path.name in expected_files) if cache_dir.exists() else []
+    if cache_complete(cache_dir):
+        if force:
+            raise RuntimeError(
+                f"refusing to overwrite complete cache {cache_dir}; move it aside or choose a new cache root"
+            )
         return json.loads((cache_dir / "meta.json").read_text(encoding="utf-8"))
+    if existing:
+        raise RuntimeError(
+            f"refusing to reuse incomplete cache {cache_dir}; move it aside before retrying. existing={existing}"
+        )
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     dataset = PairImageDataset(json_dir, image_dir, image_size=image_size, max_pairs=max_pairs)
     loader = DataLoader(
@@ -139,11 +179,17 @@ def prepare_feature_cache(
         "pooled_dim": int(pooled_dim),
         "feature": "VGGT aggregator final patch tokens per-view mean+max",
         "dtype": "float16",
+        "vggt_weight": str(Path(vggt_weight)),
+        "vggt_weight_sha256": vggt_weight_sha256,
         "elapsed_sec": time.time() - t0,
         "range_mean": float(np.asarray(range_arr).mean()),
         "range_std": float(np.asarray(range_arr).std()),
         "heading_mean": float(np.asarray(heading_arr).mean()),
         "seed": int(seed),
+        "reproducibility": reproducibility,
+        "json_paths_sha256": hashlib.sha256(
+            ("\n".join(json_paths) + "\n").encode("utf-8")
+        ).hexdigest(),
     }
     write_json(cache_dir / "meta.json", meta)
     write_json(cache_dir / "json_paths.json", json_paths)
@@ -165,7 +211,11 @@ def parse_cache_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--max-train-pairs", type=int, default=None)
     parser.add_argument("--max-val-pairs", type=int, default=None)
-    parser.add_argument("--force-cache", action="store_true")
+    parser.add_argument(
+        "--force-cache",
+        action="store_true",
+        help="deprecated safety guard: existing caches are never overwritten; move them aside first",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument(
@@ -179,36 +229,52 @@ def parse_cache_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_cache_args()
-    seed_everything(args.seed, deterministic=args.deterministic)
+    if args.force_cache:
+        raise RuntimeError(
+            "--force-cache does not overwrite caches; move the old cache aside or choose a new cache root"
+        )
+    reproducibility = seed_everything(args.seed, deterministic=args.deterministic)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     train_tag = f"train_n{args.max_train_pairs or 'full'}_s{args.image_size}"
     val_tag = f"val_n{args.max_val_pairs or 'full'}_s{args.image_size}"
+    train_cache = args.cache_root / train_tag
+    val_cache = args.cache_root / val_tag
+    needs_weight = not (cache_complete(train_cache) and cache_complete(val_cache))
+    if needs_weight:
+        print(f"[weights] sha256 {args.vggt_weight}", flush=True)
+        vggt_weight_sha256 = file_sha256(args.vggt_weight)
+    else:
+        vggt_weight_sha256 = "already recorded in existing cache metadata"
     prepare_feature_cache(
         name="train",
         json_dir=args.train_json_dir,
         image_dir=args.image_dir,
-        cache_dir=args.cache_root / train_tag,
+        cache_dir=train_cache,
         image_size=args.image_size,
         max_pairs=args.max_train_pairs,
         batch_size=args.extract_batch_size,
         workers=args.workers,
         device=device,
         vggt_weight=args.vggt_weight,
+        vggt_weight_sha256=vggt_weight_sha256,
         seed=args.seed,
+        reproducibility=reproducibility,
         force=args.force_cache,
     )
     prepare_feature_cache(
         name="val",
         json_dir=args.val_json_dir,
         image_dir=args.image_dir,
-        cache_dir=args.cache_root / val_tag,
+        cache_dir=val_cache,
         image_size=args.image_size,
         max_pairs=args.max_val_pairs,
         batch_size=args.extract_batch_size,
         workers=args.workers,
         device=device,
         vggt_weight=args.vggt_weight,
+        vggt_weight_sha256=vggt_weight_sha256,
         seed=args.seed,
+        reproducibility=reproducibility,
         force=args.force_cache,
     )
 

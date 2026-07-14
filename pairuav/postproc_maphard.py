@@ -48,16 +48,25 @@ def map_decode(
     return out
 
 
-def write_submission(out_dir: Path, heading: np.ndarray, range_m: np.ndarray, expected_lines: int) -> None:
+def write_submission(
+    out_dir: Path,
+    heading: np.ndarray,
+    range_m: np.ndarray,
+    expected_lines: int,
+    *,
+    overwrite: bool = False,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     result_txt = out_dir / "result.txt"
+    result_zip = out_dir / "result.zip"
+    existing = [path for path in (result_txt, result_zip) if path.exists()]
+    if existing and not overwrite:
+        raise FileExistsError(f"outputs exist; pass --overwrite explicitly: {existing}")
     np.savetxt(result_txt, np.stack([heading, range_m], axis=1), fmt="%.6f %.6f")
-    line_count = sum(1 for _ in result_txt.open("r", encoding="utf-8"))
+    with result_txt.open("r", encoding="utf-8") as handle:
+        line_count = sum(1 for _ in handle)
     if line_count != expected_lines:
         raise ValueError(f"line count {line_count} != expected {expected_lines}")
-    result_zip = out_dir / "result.zip"
-    if result_zip.exists():
-        result_zip.unlink()
     with zipfile.ZipFile(result_zip, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(result_txt, arcname="result.txt")
     print(f"[write] {result_zip}", flush=True)
@@ -70,6 +79,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--d-values", type=Path, default=None)
     parser.add_argument("--weights", type=Path, default=None)
     parser.add_argument("--expected-lines", type=int, default=EXPECTED_TEST_PAIRS)
+    parser.add_argument("--overwrite", action="store_true", help="replace result.txt/result.zip in the output directory")
     return parser.parse_args()
 
 
@@ -87,6 +97,7 @@ def main() -> None:
         wrap180(4.0 * decoded_d.astype(np.float64)),
         -0.5 * decoded_d.astype(np.float64),
         expected_lines=args.expected_lines,
+        overwrite=args.overwrite,
     )
 
 

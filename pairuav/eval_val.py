@@ -1,11 +1,11 @@
-"""在验证 cache 上评测**完整提交系统**:冻结 VGGT 特征 → 角度头 + 双距离头门控 → MAP-hard 解码。
+"""在验证 cache 上组合评测角度头、距离头和 MAP-hard 解码。
 
 直接吃 checkpoint 文件(`.pt`),配置从同目录的 `result.json` / `config.json` 自动读取,
 后处理(门控 + MAP-hard)在内部完成 —— 不再需要先落 txt 再跑 `postproc_maphard`。
 
 用法
 ----
-提交系统(三个头,= Codabench 822841 的链路):
+历史提交结构(三个头,= Codabench 822841 的链路):
     python -m pairuav.eval_val \
       --val-cache workspace/cache/full/val_nfull_s518 \
       --val-geom  workspace/geometry/geometry_labels_val.npz \
@@ -14,7 +14,7 @@
       --range2-ckpt ckpt/B_mse_ab/range_head_best_distance.pt \
       --threshold 80
 
-单距离头(向后兼容,= REPRODUCE §7 链路):去掉 --range2-ckpt 即可。
+确定性重训的默认单距离头:去掉 `--range2-ckpt` 即可。多种子评测表明 80 m 门控没有稳定增益。
 
 评出的配置(每个都给全部指标列)
 --------------------------------
@@ -41,44 +41,14 @@ import torch
 from . import geometry as G
 from .features import write_json
 from .geometry import grid_from_d_values
-from .heads import RangeMLP, SixDofHead, heading_from_rot_torch, make_pair_input
+from .head_io import load_range_head, load_sixdof_head
+from .heads import heading_from_rot_torch, make_pair_input
 from .metrics import compute_metrics_np, wrap180
 from .postproc_maphard import default_weights_path, map_decode
 from .reproducibility import DEFAULT_SEED, seed_everything
 
 SIN45, COS45 = float(np.sin(np.deg2rad(45.0))), float(np.cos(np.deg2rad(45.0)))
 SR_TAUS = (1.0, 2.0, 5.0, 10.0)
-
-
-# --------------------------------------------------------------------- 载入
-def _cfg_beside(ckpt: Path) -> dict[str, Any]:
-    """从 checkpoint 同目录读配置:优先 result.json['config'],退回 config.json。"""
-    d = Path(ckpt).parent
-    r = d / "result.json"
-    if r.exists():
-        return json.loads(r.read_text(encoding="utf-8"))["config"]
-    c = d / "config.json"
-    if c.exists():
-        return json.loads(c.read_text(encoding="utf-8"))
-    raise FileNotFoundError(f"{d} 下既无 result.json 也无 config.json,无法确定头的结构")
-
-
-def load_angle_head(ckpt: Path, feat_dim: int, device: torch.device) -> SixDofHead:
-    cfg = _cfg_beside(ckpt)
-    model = SixDofHead(feat_dim=feat_dim, hidden_dim=int(cfg["hidden_dim"]),
-                       input_mode=str(cfg["input_mode"]), depth=int(cfg["depth"]),
-                       dropout=float(cfg["dropout"]))
-    model.load_state_dict(torch.load(ckpt, map_location="cpu"), strict=True)
-    return model.to(device).eval()
-
-
-def load_range_head(ckpt: Path, feat_dim: int, device: torch.device) -> tuple[RangeMLP, str]:
-    cfg = _cfg_beside(ckpt)
-    mult = {"ab": 2, "ab_diff_prod": 4, "diff_prod": 2}[str(cfg["input_mode"])]
-    model = RangeMLP(in_dim=feat_dim * mult, hidden_dim=int(cfg["hidden_dim"]),
-                     depth=int(cfg["depth"]), dropout=float(cfg["dropout"]), range_limit=132.0)
-    model.load_state_dict(torch.load(ckpt, map_location="cpu"), strict=True)
-    return model.to(device).eval(), str(cfg["input_mode"])
 
 
 # --------------------------------------------------------------------- 指标
@@ -123,11 +93,13 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     p_gt = _pos(4.0 * step_b, 256.0 - 0.5 * step_b)
     assert np.abs(_pos(alpha_a + gt_h, rho_a + gt_r) - p_gt).max() < 1e-6, "端点定义与官方标签不自洽"
 
-    angle = load_angle_head(args.angle_ckpt, feat_dim, device)
-    head_c, mode_c = load_range_head(args.range_ckpt, feat_dim, device)
+    angle, _angle_cfg, _angle_source = load_sixdof_head(args.angle_ckpt, feat_dim, device)
+    head_c, cfg_c, _range_source = load_range_head(args.range_ckpt, feat_dim, device)
+    mode_c = str(cfg_c["input_mode"])
     head_b, mode_b = (None, "")
     if args.range2_ckpt is not None:
-        head_b, mode_b = load_range_head(args.range2_ckpt, feat_dim, device)
+        head_b, cfg_b, _range2_source = load_range_head(args.range2_ckpt, feat_dim, device)
+        mode_b = str(cfg_b["input_mode"])
 
     ph, pr_pose, pr_c, pr_b = [], [], [], []
     for s in range(0, feats.shape[0], args.batch_size):
@@ -177,13 +149,14 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         },
         "gate_threshold_m": args.threshold if head_b is not None else None,
         "gate_switched_rows": int((np.abs(pr_c) > args.threshold).sum()) if head_b is not None else None,
-        "submitted_system": f"{main} + maphard",     # = Codabench 822841 的链路(给全三个头时)
+        "primary_system": f"{main} + maphard",
+        "submitted_system": "gate + maphard" if head_b is not None else None,
         "results": results,
     }
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="在验证 cache 上评测完整提交系统(角度头 + 双距离头门控 + MAP-hard)。")
+    p = argparse.ArgumentParser(description="在验证 cache 上组合评测角度头、一个/两个距离头和 MAP-hard。")
     p.add_argument("--val-cache", type=Path, required=True)
     p.add_argument("--val-geom", type=Path, required=True)
     p.add_argument("--angle-ckpt", type=Path, required=True, help="角度头 .pt(配置从同目录自动读)")

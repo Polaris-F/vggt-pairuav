@@ -6,7 +6,7 @@ import argparse
 import json
 import math
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
 from . import geometry as G
-from .features import write_json
+from .features import file_sha256, write_json
 from .heads import (
     SixDofHead,
     circ_sincos_loss_deg,
@@ -25,6 +25,7 @@ from .heads import (
     sincos_angle_loss,
 )
 from .metrics import compute_metrics_np
+from .reproducibility import DEFAULT_SEED, dataloader_generator, prepare_run_dir, seed_everything
 
 
 @dataclass
@@ -48,11 +49,23 @@ class AngleConfig:
     coupling_weight: float = 0.0
 
 
-def load_config(path: Path | None) -> AngleConfig:
-    if path is None:
-        return AngleConfig()
+def load_config(path: Path) -> AngleConfig:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return AngleConfig(**data)
+    expected = {field.name for field in fields(AngleConfig)}
+    missing = expected - data.keys()
+    unknown = data.keys() - expected
+    if missing or unknown:
+        raise ValueError(f"invalid angle config fields: missing={sorted(missing)}, unknown={sorted(unknown)}")
+    cfg = AngleConfig(**data)
+    if not cfg.name or Path(cfg.name).name != cfg.name or cfg.name in {".", ".."}:
+        raise ValueError(f"unsafe config name: {cfg.name!r}")
+    if cfg.input_mode not in {"ab", "ab_diff_prod"}:
+        raise ValueError(f"unsupported angle input mode: {cfg.input_mode}")
+    if cfg.lr <= 0 or cfg.batch_size <= 0 or cfg.epochs <= 0 or cfg.hidden_dim <= 0 or cfg.depth <= 0:
+        raise ValueError("lr, batch_size, epochs, hidden_dim and depth must be positive")
+    if not 0.0 <= cfg.dropout < 1.0:
+        raise ValueError("dropout must be in [0, 1)")
+    return cfg
 
 
 def load_cache(cache_dir: Path, geom_path: Path, device: torch.device) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, np.ndarray]]:
@@ -92,9 +105,15 @@ def evaluate(model: SixDofHead, feat: torch.Tensor, labels_np: dict[str, np.ndar
     return out
 
 
-def train_one(cfg: AngleConfig, args: argparse.Namespace, run_root: Path, device: torch.device) -> dict[str, Any]:
+def train_one(
+    cfg: AngleConfig,
+    args: argparse.Namespace,
+    run_root: Path,
+    device: torch.device,
+    reproducibility: dict[str, Any],
+) -> dict[str, Any]:
     run_dir = run_root / cfg.name
-    run_dir.mkdir(parents=True, exist_ok=True)
+    prepare_run_dir(run_dir)
     write_json(run_dir / "config.json", asdict(cfg))
 
     train_feat, train_t, _train_np = load_cache(args.train_cache, args.train_geom, device)
@@ -118,10 +137,15 @@ def train_one(cfg: AngleConfig, args: argparse.Namespace, run_root: Path, device
         return cfg.final_lr_frac + (1.0 - cfg.final_lr_frac) * 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
 
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda=lr_lambda)
-    loader = DataLoader(TensorDataset(torch.arange(len(train_feat), dtype=torch.long)), batch_size=cfg.batch_size, shuffle=True)
+    loader = DataLoader(
+        TensorDataset(torch.arange(len(train_feat), dtype=torch.long)),
+        batch_size=cfg.batch_size,
+        shuffle=True,
+        generator=dataloader_generator(args.seed),
+    )
     initial = evaluate(model, val_feat, val_np, device, args.eval_batch_size)
-    best = {"epoch": -1, "val": initial}
-    best_angle = {"epoch": -1, "val": initial}
+    best: dict[str, Any] | None = None
+    best_angle: dict[str, Any] | None = None
     history: list[dict[str, Any]] = []
     start_all = time.time()
     for epoch in range(cfg.epochs):
@@ -178,10 +202,10 @@ def train_one(cfg: AngleConfig, args: argparse.Namespace, run_root: Path, device
             "val": val,
         }
         history.append(row)
-        if val["final_score"] < best["val"]["final_score"]:
+        if best is None or val["final_score"] < best["val"]["final_score"]:
             best = {"epoch": epoch, "val": val}
             torch.save(model.state_dict(), run_dir / "head_best_final.pt")
-        if val["angle_rel_error"] < best_angle["val"]["angle_rel_error"]:
+        if best_angle is None or val["angle_rel_error"] < best_angle["val"]["angle_rel_error"]:
             best_angle = {"epoch": epoch, "val": val}
             torch.save(model.state_dict(), run_dir / "head_best_angle.pt")
         torch.save(model.state_dict(), run_dir / "head_last.pt")
@@ -191,7 +215,17 @@ def train_one(cfg: AngleConfig, args: argparse.Namespace, run_root: Path, device
             f"dist={val['distance_rel_error']:.6f} range_mae={val['range_mae_m']:.3f}",
             flush=True,
         )
-    result = {"config": asdict(cfg), "run_dir": str(run_dir), "initial": initial, "best": best, "best_angle": best_angle, "history": history, "elapsed_sec": time.time() - start_all}
+    assert best is not None and best_angle is not None
+    result = {
+        "config": asdict(cfg),
+        "reproducibility": reproducibility,
+        "run_dir": str(run_dir),
+        "initial": initial,
+        "best": best,
+        "best_angle": best_angle,
+        "history": history,
+        "elapsed_sec": time.time() - start_all,
+    }
     write_json(run_dir / "result.json", result)
     return result
 
@@ -203,20 +237,58 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-geom", type=Path, required=True)
     parser.add_argument("--val-geom", type=Path, required=True)
     parser.add_argument("--run-root", type=Path, default=Path("runs/angle"))
-    parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="explicit JSON recipe; implicit training defaults are disabled",
+    )
     parser.add_argument("--eval-batch-size", type=int, default=2048)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--timestamp-run-root",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="append a timestamp to --run-root (default: enabled); disable inside an already unique workflow run",
+    )
+    parser.add_argument(
+        "--deterministic",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="request deterministic PyTorch algorithms (default: enabled)",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    # The archived angle-head recipe used PyTorch's default full FP32 matmul.
+    # TF32 ("high") materially regresses the 6D rotation/geodesic objective.
+    reproducibility = seed_everything(
+        args.seed,
+        deterministic=args.deterministic,
+        matmul_precision="highest",
+    )
+    reproducibility["config_source"] = {
+        "path": str(args.config.resolve()),
+        "sha256": file_sha256(args.config),
+    }
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     cfg = load_config(args.config)
-    run_root = args.run_root.with_name(args.run_root.name + "_" + time.strftime("%Y%m%d_%H%M%S"))
-    run_root.mkdir(parents=True, exist_ok=True)
-    result = train_one(cfg, args, run_root, device)
-    write_json(run_root / "summary.json", {"run_root": str(run_root), "result": {"name": cfg.name, "best": result["best"], "best_angle": result["best_angle"]}})
+    run_root = args.run_root
+    if args.timestamp_run_root:
+        run_root = run_root.with_name(run_root.name + "_" + time.strftime("%Y%m%d_%H%M%S"))
+    prepare_run_dir(run_root)
+    result = train_one(cfg, args, run_root, device, reproducibility)
+    write_json(
+        run_root / "summary.json",
+        {
+            "run_root": str(run_root),
+            "reproducibility": reproducibility,
+            "result": {"name": cfg.name, "best": result["best"], "best_angle": result["best_angle"]},
+        },
+    )
 
 
 if __name__ == "__main__":

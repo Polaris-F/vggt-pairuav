@@ -1,63 +1,212 @@
 {
-  "format": "one relative pair-json path per line, relative to PairUAV train json root",
+  "note": "公开 split 的权威元信息。使用 python -m pairuav.index verify-manifest 校验每个 index 的总行数、唯一 pair 数、重复行数和 SHA256。",
+  "frame_step_54": "官方 54 帧 → 轨迹步:f=1→0;f≥2→4+5(f−2),即 {0,4,9,…,264}",
+  "frame_map_2fps_to_10fps": "**图像相似度实测**:2fps 帧 f ↔ 10fps 帧 j = 5f − 2(残差 0.00,次近邻远 50 倍)。由此 10fps 的 step = j − 4,在 j ∈ [8,268] 上成立(f=1 是异常点,故线性区从 j=8 起)。",
+  "D_legal_count": 211,
   "splits": [
     {
       "name": "train_balanced_32768",
+      "file": "train_balanced_32768.txt",
       "count": 32768,
-      "sha256": "ae6f171e9cef6faed348a8f5fdd070c673988574321c3661512275b82ccbd212",
+      "unique_count": 32768,
+      "duplicate_rows": 0,
+      "duplicates_allowed": false,
       "buildings": 631,
+      "sha256": "ae6f171e9cef6faed348a8f5fdd070c673988574321c3661512275b82ccbd212",
+      "image_root": "PairUAV `train_tour/`(= UniV 45°/2fps = U1652 train/drone),54 帧/楼",
+      "path_format": "`<楼>/<帧A 2位>_<帧B 2位>.json`(PairUAV 官方 pair-json 相对路径)",
+      "purpose": "训练。按 D 值均衡采样;631 栋楼(与 val 不交叉)。占官方 701 楼总量 2,044,116 对的 1.60%,占无泄漏 631 楼训练池 1,839,996 对的 1.78%",
+      "D": {
+        "unique": 211,
+        "legal": 32768,
+        "illegal": 0,
+        "absD_mean": 133.04,
+        "absD_p10_p50_p90": [
+          30,
+          135,
+          240
+        ]
+      },
       "first": [
         "0839/01_02.json",
         "0839/01_11.json",
-        "0839/01_16.json",
-        "0839/01_30.json",
-        "0839/01_34.json"
+        "0839/01_16.json"
       ],
       "last": [
-        "1567/53_10.json",
-        "1567/54_01.json",
         "1567/54_08.json",
         "1567/54_18.json",
         "1567/54_25.json"
-      ],
-      "frame_pair_min": [
-        1,
-        1
-      ],
-      "frame_pair_max": [
-        54,
-        54
-      ],
-      "file": "train_balanced_32768.txt"
+      ]
     },
     {
       "name": "val_quick_2048",
+      "file": "val_quick_2048.txt",
       "count": 2048,
-      "sha256": "b0441003c5fa616d8ec048439bca1f123a8d0303aca3be92b215c9a483e585eb",
+      "unique_count": 2048,
+      "duplicate_rows": 0,
+      "duplicates_allowed": false,
       "buildings": 70,
+      "sha256": "b0441003c5fa616d8ec048439bca1f123a8d0303aca3be92b215c9a483e585eb",
+      "image_root": "同上",
+      "path_format": "同上",
+      "purpose": "主验证集。70 栋 held-out 楼;选型、消融、论文表格的默认口径",
+      "D": {
+        "unique": 177,
+        "legal": 2048,
+        "illegal": 0,
+        "absD_mean": 133.21,
+        "absD_p10_p50_p90": [
+          29,
+          135,
+          240
+        ]
+      },
       "first": [
         "1568/01_47.json",
         "1568/02_54.json",
-        "1568/03_50.json",
-        "1568/03_53.json",
-        "1568/04_02.json"
+        "1568/03_50.json"
       ],
       "last": [
-        "1650/47_08.json",
-        "1650/47_20.json",
         "1650/52_30.json",
         "1650/53_11.json",
         "1650/54_21.json"
+      ]
+    },
+    {
+      "name": "val_full_204120",
+      "file": "val_full_204120.txt",
+      "count": 204120,
+      "unique_count": 204120,
+      "duplicate_rows": 0,
+      "duplicates_allowed": false,
+      "buildings": 70,
+      "sha256": "5e17f8e6615c0d0bb705788da092084f631f032a8ff36877b227b9f2a47a02c3",
+      "image_root": "同上",
+      "path_format": "同上",
+      "purpose": "全量验证。同 70 栋楼的**全部有序对**(70 × 54 × 54 = 204,120);用于验证 2,048 的抽样是否有代表性",
+      "D": {
+        "unique": 211,
+        "legal": 204120,
+        "illegal": 0,
+        "absD_mean": 89.93,
+        "absD_p10_p50_p90": [
+          15,
+          80,
+          185
+        ]
+      },
+      "first": [
+        "1568/01_01.json",
+        "1568/01_02.json",
+        "1568/01_03.json"
       ],
-      "frame_pair_min": [
-        1,
-        2
+      "last": [
+        "1650/54_52.json",
+        "1650/54_53.json",
+        "1650/54_54.json"
+      ]
+    },
+    {
+      "name": "val10_ongrid_2048",
+      "file": "val10_ongrid_2048.txt",
+      "count": 2048,
+      "unique_count": 2022,
+      "duplicate_rows": 26,
+      "duplicates_allowed": true,
+      "buildings": 70,
+      "sha256": "76891ffd0f03f52bb3989e8eb1f854a7b28214215a5ccf50b52f456b9110fbc6",
+      "image_root": "**UniV 45°/10fps** `train/drone`,270 帧/楼(S6: `data/univ45_10fps_val70`)",
+      "path_format": "`<楼>/<10fps 帧A 3位>_<10fps 帧B 3位>`(无 .json —— PairUAV 没有这些对的官方标注,标签由闭式几何生成)",
+      "purpose": "**泛化对照组**。两帧都是线性区的官方采样帧(j ≡ 3 mod 5)且 D 合法;用于三档内部 matched comparison。由于排除异常的官方第 1 帧,不与 val_quick 绝对 MAE 直接比较",
+      "D": {
+        "unique": 104,
+        "legal": 2048,
+        "illegal": 0,
+        "absD_mean": 128.13,
+        "absD_p10_p50_p90": [
+          25,
+          130,
+          235
+        ]
+      },
+      "first": [
+        "1620/268_008",
+        "1650/048_078",
+        "1622/173_233"
       ],
-      "frame_pair_max": [
-        54,
-        52
+      "last": [
+        "1631/153_088",
+        "1584/263_038",
+        "1604/063_123"
+      ]
+    },
+    {
+      "name": "val10_offframe_2048",
+      "file": "val10_offframe_2048.txt",
+      "count": 2048,
+      "unique_count": 2044,
+      "duplicate_rows": 4,
+      "duplicates_allowed": true,
+      "buildings": 70,
+      "sha256": "1b558de32c5ac6c686bb748a4f992a868406b14d647be848dcb8f151a87e3f58",
+      "image_root": "同上",
+      "path_format": "同上",
+      "purpose": "**新视角,标签可表示**。至少一帧非官方,但 D 仍在 211 合法值里(离散头**能**答对)",
+      "D": {
+        "unique": 206,
+        "legal": 2048,
+        "illegal": 0,
+        "absD_mean": 128.48,
+        "absD_p10_p50_p90": [
+          24,
+          129,
+          234
+        ]
+      },
+      "first": [
+        "1650/267_008",
+        "1609/075_105",
+        "1629/167_226"
       ],
-      "file": "val_quick_2048.txt"
+      "last": [
+        "1604/140_076",
+        "1575/259_034",
+        "1622/027_086"
+      ]
+    },
+    {
+      "name": "val10_offgrid_2048",
+      "file": "val10_offgrid_2048.txt",
+      "count": 2048,
+      "unique_count": 2047,
+      "duplicate_rows": 1,
+      "duplicates_allowed": true,
+      "buildings": 70,
+      "sha256": "ea2ed105311ceaf7d7e8009b72a4a18921e5f2263a8c7a3855e293358719eeb6",
+      "image_root": "同上",
+      "path_format": "同上",
+      "purpose": "**新视角 + 标签不可表示**。D **不在** 211 合法值里(离散头**答不出**)← 真 off-grid",
+      "D": {
+        "unique": 312,
+        "legal": 0,
+        "illegal": 2048,
+        "absD_mean": 128.39,
+        "absD_p10_p50_p90": [
+          23,
+          128,
+          233
+        ]
+      },
+      "first": [
+        "1617/267_009",
+        "1571/145_176",
+        "1586/178_236"
+      ],
+      "last": [
+        "1570/214_151",
+        "1582/248_022",
+        "1572/064_122"
+      ]
     }
   ]
 }

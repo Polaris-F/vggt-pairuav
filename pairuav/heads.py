@@ -11,6 +11,21 @@ import torch.nn.functional as F
 from . import geometry as G
 
 
+PAIR_INPUT_MULTIPLIERS = {
+    "ab": 2,
+    "ab_diff_prod": 4,
+    "diff_prod": 2,
+}
+
+
+def pair_input_dim(feat_dim: int, mode: str) -> int:
+    try:
+        multiplier = PAIR_INPUT_MULTIPLIERS[mode]
+    except KeyError as exc:
+        raise ValueError(f"unknown input mode: {mode}") from exc
+    return int(feat_dim) * multiplier
+
+
 def make_pair_input(features: torch.Tensor, mode: str) -> torch.Tensor:
     feat_a = features[:, 0].float()
     feat_b = features[:, 1].float()
@@ -68,9 +83,8 @@ class SixDofHead(nn.Module):
     ) -> None:
         super().__init__()
         self.input_mode = input_mode
-        mult = {"ab": 2, "ab_diff_prod": 4}[input_mode]
         layers: list[nn.Module] = []
-        in_dim = feat_dim * mult
+        in_dim = pair_input_dim(feat_dim, input_mode)
         for index in range(int(depth)):
             layers.append(nn.Linear(in_dim if index == 0 else hidden_dim, hidden_dim))
             layers.append(nn.ReLU(inplace=True))

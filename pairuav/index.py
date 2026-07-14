@@ -48,6 +48,17 @@ def read_index(path: Path) -> list[str]:
     return lines
 
 
+def validate_index_paths(lines: list[str], *, allow_duplicates: bool = False) -> None:
+    seen: set[str] = set()
+    for rel in lines:
+        path = Path(rel)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"unsafe index path: {rel}")
+        if rel in seen and not allow_duplicates:
+            raise ValueError(f"duplicate index path: {rel}")
+        seen.add(rel)
+
+
 def write_index(path: Path, rel_paths: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(rel_paths) + "\n", encoding="utf-8")
@@ -98,17 +109,41 @@ def command_export(args: argparse.Namespace) -> None:
 
 def command_materialize(args: argparse.Namespace) -> None:
     index = read_index(args.index)
+    validate_index_paths(index)
     source = Path(args.source_json_dir)
     out = Path(args.out_json_dir)
+    if source.resolve() == out.resolve():
+        raise ValueError("source and output directories must be different")
+
+    missing = [rel for rel in index if not (source / rel).is_file()]
+    if missing:
+        raise FileNotFoundError(f"source is missing {len(missing)} indexed files; first={missing[:5]}")
+
+    existing = []
+    if out.exists():
+        existing_paths = sorted(
+            (path for path in out.rglob("*.json") if PAIR_RE.match(path.name)),
+            key=json_sort_key,
+        )
+        existing = [str(path.relative_to(out)) for path in existing_paths]
+    extra = sorted(set(existing) - set(index))
+    if extra:
+        raise RuntimeError(
+            f"output directory contains {len(extra)} stale pair JSON files; "
+            f"use a new empty directory or move the old directory aside. first={extra[:5]}"
+        )
+
     copied = 0
     for rel in index:
         src = source / rel
         dst = out / rel
-        if not src.exists():
-            raise FileNotFoundError(src)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         copied += 1
+
+    actual = [str(path.relative_to(out)) for path in iter_json_paths(out)]
+    if actual != index:
+        raise RuntimeError("materialized JSON order does not match the fixed index")
     manifest = build_manifest(args.name or args.index.stem, index)
     manifest.update({"source": str(source), "out": str(out), "copied": copied})
     (out / "index_manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -117,6 +152,7 @@ def command_materialize(args: argparse.Namespace) -> None:
 
 def command_verify_json(args: argparse.Namespace) -> None:
     index = read_index(args.index)
+    validate_index_paths(index)
     json_dir = Path(args.json_dir)
     missing = [rel for rel in index if not (json_dir / rel).exists()]
     out = {
@@ -143,12 +179,18 @@ def command_verify_json(args: argparse.Namespace) -> None:
 
 def command_verify_cache(args: argparse.Namespace) -> None:
     index = read_index(args.index)
+    validate_index_paths(index)
     cache_dir = Path(args.cache_dir)
     cached_paths_file = cache_dir / "json_paths.json"
     if not cached_paths_file.exists():
         raise FileNotFoundError(cached_paths_file)
     cached_paths = json.loads(cached_paths_file.read_text(encoding="utf-8"))
+    if not isinstance(cached_paths, list):
+        raise ValueError(f"{cached_paths_file} must contain a JSON list")
     cached_rel = [path_suffix(path, depth=2) for path in cached_paths]
+    errors: list[str] = []
+    if cached_rel != index:
+        errors.append("json_paths order differs from index")
     out: dict[str, Any] = {
         "index": str(args.index),
         "cache_dir": str(cache_dir),
@@ -162,16 +204,74 @@ def command_verify_cache(args: argparse.Namespace) -> None:
         "last_index": index[-5:],
         "last_cache": cached_rel[-5:],
     }
-    if (cache_dir / "features.npy").exists():
-        features = np.load(cache_dir / "features.npy", mmap_mode="r")
-        out["features_shape"] = list(features.shape)
-        out["features_dtype"] = str(features.dtype)
-    if (cache_dir / "heading.npy").exists():
-        out["heading_shape"] = list(np.load(cache_dir / "heading.npy", mmap_mode="r").shape)
-    if (cache_dir / "range.npy").exists():
-        out["range_shape"] = list(np.load(cache_dir / "range.npy", mmap_mode="r").shape)
+    expected = len(index)
+    arrays = {
+        "features": cache_dir / "features.npy",
+        "heading": cache_dir / "heading.npy",
+        "range": cache_dir / "range.npy",
+    }
+    for name, path in arrays.items():
+        if not path.exists():
+            errors.append(f"missing {path.name}")
+            continue
+        arr = np.load(path, mmap_mode="r")
+        out[f"{name}_shape"] = list(arr.shape)
+        out[f"{name}_dtype"] = str(arr.dtype)
+        if not arr.shape or arr.shape[0] != expected:
+            errors.append(f"{path.name} first dimension {arr.shape[:1]} != {expected}")
+    if "features_shape" in out and (len(out["features_shape"]) != 3 or out["features_shape"][1] != 2):
+        errors.append(f"features.npy must have shape (N, 2, C), got {out['features_shape']}")
+    for name in ("heading", "range"):
+        shape = out.get(f"{name}_shape")
+        if shape is not None and len(shape) != 1:
+            errors.append(f"{name}.npy must be one-dimensional, got {shape}")
+
+    meta_file = cache_dir / "meta.json"
+    if not meta_file.exists():
+        errors.append("missing meta.json")
+    else:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        out["meta_samples"] = meta.get("samples")
+        if meta.get("samples") != expected:
+            errors.append(f"meta.samples {meta.get('samples')} != {expected}")
+
+    out["errors"] = errors
+    out["valid"] = not errors
     print(json.dumps(out, indent=2, ensure_ascii=False), flush=True)
-    if not out["same_order"]:
+    if errors:
+        raise SystemExit(1)
+
+
+def command_verify_manifest(args: argparse.Namespace) -> None:
+    manifest_path = Path(args.manifest)
+    index_root = Path(args.index_root)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    errors = []
+    checked = []
+    for split in manifest.get("splits", []):
+        path = index_root / split["file"]
+        lines = read_index(path)
+        allow_duplicates = bool(split.get("duplicates_allowed", False))
+        validate_index_paths(lines, allow_duplicates=allow_duplicates)
+        unique_count = len(set(lines))
+        actual = {
+            "count": len(lines),
+            "unique_count": unique_count,
+            "duplicate_rows": len(lines) - unique_count,
+            "sha256": sha256_lines(lines),
+        }
+        expected = {
+            "count": int(split["count"]),
+            "unique_count": int(split.get("unique_count", split["count"])),
+            "duplicate_rows": int(split.get("duplicate_rows", 0)),
+            "sha256": str(split["sha256"]),
+        }
+        if actual != expected:
+            errors.append({"name": split.get("name"), "expected": expected, "actual": actual})
+        checked.append({"name": split.get("name"), "file": str(path), **actual})
+    out = {"manifest": str(manifest_path), "checked": checked, "errors": errors, "valid": not errors}
+    print(json.dumps(out, indent=2, ensure_ascii=False), flush=True)
+    if errors:
         raise SystemExit(1)
 
 
@@ -204,6 +304,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--index", type=Path, required=True)
     p.add_argument("--cache-dir", type=Path, required=True)
     p.set_defaults(func=command_verify_cache)
+
+    p = sub.add_parser("verify-manifest", help="校验 manifest 中每个 index 的数量和 SHA256")
+    p.add_argument("--manifest", type=Path, required=True)
+    p.add_argument("--index-root", type=Path, required=True)
+    p.set_defaults(func=command_verify_manifest)
     return parser.parse_args()
 
 

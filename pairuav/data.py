@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -14,7 +15,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms as T
 
 
-PAIR_JSON_RE = re.compile(r"^\d{2}_\d{2}\.json$")
+PAIR_JSON_RE = re.compile(r"^\d+(?:_\d+)?\.json$")  # 训练 01_02.json / 测试 0000.json 两种命名
 
 
 def extract_int(value: object) -> int | float:
@@ -119,7 +120,22 @@ def pair_collate(batch: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def load_test_pairs(json_dir: Path, pairs_cache: Path | None = None) -> list[tuple[str, str]]:
+def pair_list_sha256(pairs: Sequence[tuple[str, str]]) -> str:
+    digest = hashlib.sha256()
+    for image_a, image_b in pairs:
+        digest.update(image_a.encode("utf-8"))
+        digest.update(b"\t")
+        digest.update(image_b.encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def load_test_pairs(
+    json_dir: Path,
+    pairs_cache: Path | None = None,
+    *,
+    trust_existing_cache: bool = False,
+) -> list[tuple[str, str]]:
     """读取测试 pair 的图像路径顺序,可用文本 cache 加速重复运行。"""
 
     if pairs_cache is not None:
@@ -130,6 +146,19 @@ def load_test_pairs(json_dir: Path, pairs_cache: Path | None = None) -> list[tup
                 for line in handle:
                     a, b = line.split()
                     pairs.append((a, b))
+            meta_path = pairs_cache.with_suffix(pairs_cache.suffix + ".meta.json")
+            if not meta_path.exists():
+                if not trust_existing_cache:
+                    raise RuntimeError(
+                        f"{pairs_cache} has no metadata sidecar; rebuild it or pass --trust-pairs-cache explicitly"
+                    )
+            else:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                expected_dir = str(Path(json_dir).resolve())
+                if meta.get("json_dir") != expected_dir:
+                    raise RuntimeError(f"pairs cache was built from {meta.get('json_dir')}, not {expected_dir}")
+                if meta.get("count") != len(pairs) or meta.get("sha256") != pair_list_sha256(pairs):
+                    raise RuntimeError(f"pairs cache metadata mismatch: {pairs_cache}")
             return pairs
 
     pairs = []
@@ -141,6 +170,15 @@ def load_test_pairs(json_dir: Path, pairs_cache: Path | None = None) -> list[tup
         pairs_cache.parent.mkdir(parents=True, exist_ok=True)
         with pairs_cache.open("w", encoding="utf-8") as handle:
             handle.writelines(f"{a} {b}\n" for a, b in pairs)
+        meta = {
+            "json_dir": str(Path(json_dir).resolve()),
+            "count": len(pairs),
+            "sha256": pair_list_sha256(pairs),
+        }
+        pairs_cache.with_suffix(pairs_cache.suffix + ".meta.json").write_text(
+            json.dumps(meta, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
     return pairs
 
 

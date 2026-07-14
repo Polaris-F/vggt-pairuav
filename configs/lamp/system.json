@@ -1,0 +1,11 @@
+{
+  "name": "lamp",
+  "description": "Paper method: 6-DoF pose head plus one [a,b] relative-error range head.",
+  "angle_config": "angle_s0.json",
+  "range_config": "range_ab_relsmooth.json",
+  "range2_config": null,
+  "gate_threshold_m": null,
+  "decoder": "maphard_optional",
+  "default_train_index": "../../data_index/train_balanced_32768.txt",
+  "default_val_index": "../../data_index/val_quick_2048.txt"
+}

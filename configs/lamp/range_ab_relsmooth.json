@@ -1,6 +1,6 @@
 {
-  "name": "C_rel_rich",
-  "input_mode": "ab_diff_prod",
+  "name": "R_ab_relsmooth",
+  "input_mode": "ab",
   "loss": "rel_smooth",
   "hidden_dim": 512,
   "depth": 2,

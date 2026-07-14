@@ -12,6 +12,7 @@ import numpy as np
 
 
 CACHE_ARRAYS = ("features.npy", "heading.npy", "range.npy")
+REQUIRED_CACHE_FILES = (*CACHE_ARRAYS, "json_paths.json", "meta.json")
 
 
 def write_json(path: Path, obj: Any) -> None:
@@ -19,14 +20,32 @@ def write_json(path: Path, obj: Any) -> None:
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def prepare_empty_output(out: Path) -> None:
+    out = Path(out)
+    if out.exists():
+        if not out.is_dir() or any(out.iterdir()):
+            raise FileExistsError(f"output directory must be empty: {out}")
+        return
+    out.mkdir(parents=True)
+
+
+def require_complete_cache(source: Path) -> None:
+    missing = [name for name in REQUIRED_CACHE_FILES if not (Path(source) / name).exists()]
+    if missing:
+        raise FileNotFoundError(f"cache is incomplete: {source}; missing={missing}")
+
+
 def slice_cache(source: Path, out: Path, limit: int, offset: int = 0) -> dict[str, Any]:
     source = Path(source)
     out = Path(out)
     if limit <= 0:
         raise ValueError("--limit must be positive")
-    out.mkdir(parents=True, exist_ok=True)
     start = int(offset)
+    if start < 0:
+        raise ValueError("--offset must be non-negative")
     end = start + int(limit)
+    require_complete_cache(source)
+    prepare_empty_output(out)
     for name in CACHE_ARRAYS:
         arr = np.load(source / name, mmap_mode="r")
         if end > arr.shape[0]:
@@ -48,18 +67,18 @@ def slice_cache(source: Path, out: Path, limit: int, offset: int = 0) -> dict[st
 def link_cache(source: Path, out: Path) -> None:
     source = Path(source)
     out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
-    for name in (*CACHE_ARRAYS, "json_paths.json", "meta.json"):
+    require_complete_cache(source)
+    prepare_empty_output(out)
+    for name in REQUIRED_CACHE_FILES:
         dst = out / name
-        if dst.exists() or dst.is_symlink():
-            continue
         dst.symlink_to((source / name).resolve())
 
 
 def copy_cache_meta(source: Path, out: Path) -> None:
     source = Path(source)
     out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
+    require_complete_cache(source)
+    prepare_empty_output(out)
     for name in ("json_paths.json", "meta.json"):
         shutil.copy2(source / name, out / name)
 

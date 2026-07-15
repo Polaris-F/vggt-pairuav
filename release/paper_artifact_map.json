@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "paper": {
+    "title": "LaMP: Last-Meter Manifold Pose Estimation for Image-Goal Terminal UAV Navigation",
+    "submission": "OpenReview #12"
+  },
+  "custody_path_base": "author archive root: PairUAV_Submission-Final",
+  "protocol": {
+    "train_index": "data_index/train_balanced_32768.txt",
+    "validation_index": "data_index/val_quick_2048.txt",
+    "validation_pairs": 2048,
+    "validation_buildings": 70
+  },
+  "tables": [
+    {
+      "paper_table": "Table 1",
+      "rows": [
+        {
+          "name": "LaMP (challenge entry)",
+          "custody": "EXPERIMENTS_new/Eval_all/results/T11_旧门控C+B@80m(=提交系统的连续输出)/metrics.json",
+          "archived_submission": "822841",
+          "release_bundle": "lamp_challenge_entry_822841_v1"
+        },
+        {
+          "name": "LaMP (ours)",
+          "custody": "EXPERIMENTS_new/Eval_all/results/T07_★角度头·6-DoF·rich(=LaMP)/metrics.json",
+          "release_bundle": "lamp_ours_3seed_valquick_v1",
+          "command": "bash scripts/evaluate_lamp_release.sh"
+        },
+        {
+          "name": "official released baselines",
+          "custody": "EXPERIMENTS_new/T115_官方基线重训/results/T115_RESULT.md"
+        },
+        {
+          "name": "other frozen-backbone baselines",
+          "custody": "tmp/SR_一致性对照_20260714.md"
+        }
+      ]
+    },
+    {
+      "paper_table": "Table 2",
+      "rows": [
+        {"name": "direct pose supervision", "custody_id": "T02"},
+        {"name": "6-DoF pose supervision", "custody_id": "T03"},
+        {"name": "relative-error range head", "custody_id": "T07/T41"},
+        {"name": "pose-set decoding", "custody_id": "T49"},
+        {"name": "challenge gate variant", "custody_id": "T11/T12"}
+      ],
+      "custody_root": "EXPERIMENTS_new/Eval_all/results"
+    },
+    {
+      "paper_table": "Table 3",
+      "name": "on-trajectory generalization and discrete baseline",
+      "custody": "EXPERIMENTS_new/T113_探针口径统一/results/T113_FULL_METRICS.csv",
+      "probe_bundle": "lamp_probe_on_manifold_v1"
+    },
+    {
+      "paper_table": "Table 4",
+      "name": "altered slopes and real-image transfer",
+      "custody": "EXPERIMENTS_new/T113_探针口径统一/results/T113_RESULT.md",
+      "probe_bundles": [
+        "lamp_probe_off_manifold_slope_v1",
+        "lamp_probe_sues200_v1"
+      ]
+    }
+  ]
+}

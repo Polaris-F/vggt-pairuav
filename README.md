@@ -1,97 +1,100 @@
-# vggt-pairuav
+# LaMP: Last-Meter Manifold Pose Estimation
 
-这是 ACMMM 2026 UAV Workshop：PairUAV 任务 的 实现代码，主要基于 VGGT 结合低维流形假设来解决无人机绕目标螺旋下降逼近等条件下的先验嵌入建模。
+Official implementation and review artifact for **“LaMP: Last-Meter Manifold Pose Estimation for Image-Goal
+Terminal UAV Navigation”** (ACM MM 2026 UAVM Workshop, OpenReview submission #12).
 
-## 目录结构
+LaMP jointly encodes a source-goal image pair with a frozen VGGT backbone and trains lightweight task heads using
+the geometry of the public target-centric acquisition trajectory. The repository implements the paper terminology
+directly: a **geometry-supervised pose head**, a **relative-error range head**, and optional **pose-set decoding**.
 
-```text
-.
-├── 3rdparty/
-│   └── vggt/        # 官方 VGGT submodule,固定在 a288dd0
-├── pairuav/         # PairUAV 专用 Python 包
-├── configs/         # submission / LaMP 两组权威配置
-├── data_index/      # 固定训练/验证 split 的相对路径清单
-├── scripts/         # 两条一键复现链路
-├── artifacts/       # 网盘大文件的本地落盘约定
-├── docs/            # 设计说明与实验记录
-├── REPRODUCE.md
-└── pyproject.toml
+## Two systems, two claims
+
+The paper distinguishes the archived challenge system from the simplified method reported as the main model.
+
+| name in paper | range side | post-processing | reported anchor |
+|---|---|---|---|
+| **LaMP (challenge entry)** | two range heads, 80 m gate | pose-set decoding | Codabench `822841`, final `0.002402`, 5th place |
+| **LaMP (ours)** | one `[a,b]` relative-error range head | optional pose-set decoding | `0.4336 deg` heading MAE, `0.3216 m` range MAE on `val_quick_2048` (`n=3`) |
+
+The 80 m gate is retained only to reconstruct the submitted competition topology. Multi-seed validation did not show
+a reliable gate benefit, so **LaMP (ours)** removes the second range head and gate.
+
+## Install
+
+Python 3.10 or newer and PyTorch 2.2 or newer are required.
+
+```bash
+git clone --recursive https://github.com/Polaris-F/vggt-pairuav.git
+cd vggt-pairuav
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e 3rdparty/vggt
+pip install -e .
+python -m unittest discover -s tests -v
 ```
 
-VGGT 源码保存在 `3rdparty/vggt` 中,原则上保持不修改。所有 PairUAV 相关逻辑都应放在 `pairuav/` 下。
+The VGGT submodule is pinned to `a288dd0f14786c93483e45524328726ab7b1b4ce`. PairUAV-specific code lives under
+`pairuav/`; the submodule is treated as a read-only dependency.
 
-训练、特征抽取和推理入口默认固定随机种子 `2026` 并记录复现设置。稳定性说明见
-[`docs/reproducibility.md`](docs/reproducibility.md)。
+## Shortest verification paths
 
-## 复现口径
+Large assets are separate release bundles. Place them under `artifacts/` using the layouts in
+[`release/README.md`](release/README.md), then verify their manifests.
 
-本项目明确区分两件事:
+### LaMP (ours), three released seeds
 
-1. **复现比赛提交**:历史训练没有保存随机种子和 RNG 状态,因此精确复现依赖发布的
-   三个任务头 checkpoint、完整 SHA256 清单和固定后处理。官方隐藏测试成绩为 `0.002402`。
-2. **从头确定性重训论文方法**:当前代码默认 seed `2026`,角度头使用全 FP32 matmul,距离头使用
-   TF32 `high`。论文方法使用一个 `[a,b] + rel_smooth` 距离头;在固定验证集上连续输出为
-   `0.005907 +/- 0.000070`,加 MAP-hard 为 `0.003134 +/- 0.000119`(`n=3`)。
+```bash
+bash scripts/evaluate_lamp_release.sh
+```
 
-双距离头 + 80 m 门控入口仅为复现历史提交结构保留;多种子评测显示它相对单 C 头没有
-显著增益。
+This verifies the frozen `val_quick_2048` cache order, evaluates seeds `2026/2027/2028`, and writes a mean/std
+summary. Expected continuous metrics are approximately `0.43 deg` heading MAE and `0.32 m` range MAE.
 
-## 目录职责
-
-- `3rdparty/`: 第三方代码区。目前只包含官方 VGGT submodule,视为只读依赖。
-- `pairuav/`: 我方实现区。数据读取、特征缓存、几何标签、任务头、指标、训练、推理和后处理都放这里。
-- `configs/`: 可复现实验配置和路径模板。公开配置描述方法参数,实际路径由环境变量或命令行参数提供。
-- `data_index/`: 固定训练/验证数据清单,用于重建 split 和校验特征 cache 顺序。
-- `docs/`: 设计说明、实验记录和结果追踪等非执行内容放这里。
-- `REPRODUCE.md`: 最终命令级复现流程。这里应保持简洁、可执行;细节和理由放到 `docs/`。
-
-## 两条一键流程
-
-比赛提交复现使用下载后的三个任务头和官方 test pair 的冻结特征 cache,不重复运行 VGGT:
+### LaMP (challenge entry), submission 822841
 
 ```bash
 bash scripts/reproduce_submission.sh
 ```
 
-论文最终 LaMP 从固定 index 开始训练。默认使用 `32,768` 个训练 pair 和 `2,048` 个验证 pair;
-传入其他 index 即可更换数据规模:
+This verifies the archived task-head bundle, runs the two range heads with the historical 80 m gate, and applies the
+fixed pose-set decoder. The bundle also contains the archived `result_maphard.zip` submitted as `822841`.
+
+### Train LaMP (ours) from fixed indexes
+
+The default indexes contain 32,768 training pairs and 2,048 validation pairs:
 
 ```bash
 cp configs/paths.example.env configs/paths.env
-# 编辑 configs/paths.env 后:
+# Fill only local dataset/checkpoint paths in configs/paths.env.
 PAIRUAV_ENV_FILE=configs/paths.env bash scripts/train_lamp.sh
-# bash scripts/train_lamp.sh /path/to/train_index.txt /path/to/val_index.txt
 ```
 
-已有冻结特征时可设置 `PAIRUAV_TRAIN_CACHE` 和 `PAIRUAV_VAL_CACHE`,脚本会先按 index 校验顺序并跳过 VGGT。
+Existing frozen features can be supplied through `PAIRUAV_TRAIN_CACHE` and `PAIRUAV_VAL_CACHE`; both caches are
+checked against the requested indexes before training.
 
-## 环境准备
+## Data and protocol boundary
 
-```bash
-git submodule update --init --recursive
-pip install -e 3rdparty/vggt
-pip install -e .
+This repository contains pair indexes and derived geometry, not the University-1652/PairUAV image datasets. Dataset
+access follows the official [PairUAV](https://github.com/YaxuanLi-cn/PairUAV) and
+[University-1652](https://github.com/layumi/University1652-Baseline) project pages and their terms. The 211-value pose
+set is enumerated from **training labels and the public University-1652 acquisition protocol**. Challenge test images
+and labels are not used to construct the pose set or tune the decoder; Codabench supplies only the aggregate
+submission score.
+
+## Repository layout
+
+```text
+3rdparty/vggt/   pinned official VGGT submodule
+pairuav/         feature, geometry, head, metric, inference, and decoding code
+configs/         authoritative `submission/` and `lamp/` recipes
+data_index/      fixed train/validation and probe indexes
+scripts/         one-command training, evaluation, and submission workflows
+release/         bundle manifests and paper-to-artifact map
+artifacts/       ignored local landing area for downloaded large files
+REPRODUCE.md     command-level reproduction and custody guide
 ```
 
-## 结果(Codabench 隐藏测试集,官方相对误差口径,越低越好)
-
-| 输出 | final | Codabench 提交 ID |
-| --- | ---: | --- |
-| 连续输出(冻结 VGGT + 角度头 + 距离头) | 0.009292 | 811088 |
-| 连续 + MAP-hard 后处理 | 0.002517 | 811089 |
-| 双距离头门控(gate)连续 | 0.009135 | 822840 |
-| gate + MAP-hard 后处理 | **0.002402** | 822841 |
-
-复现命令、已知验证集指标和字节级复现说明见 [REPRODUCE.md](REPRODUCE.md)。
-
-## 自检
-
-```bash
-python -m unittest discover -s tests -v
-python -m pairuav.index verify-manifest \
-  --manifest data_index/manifest.json \
-  --index-root data_index
-```
-
-完整 checkpoint、test feature cache 和历史提交文件体积较大,作为独立 release bundle 发布,不直接纳入
-Git 历史。下载后的目录结构见 [artifacts/README.md](artifacts/README.md)。
+For exact commands, expected metrics, bundle hashes, and the paper table-to-experiment map, see
+[`REPRODUCE.md`](REPRODUCE.md). Reproducibility controls are documented in
+[`docs/reproducibility.md`](docs/reproducibility.md).

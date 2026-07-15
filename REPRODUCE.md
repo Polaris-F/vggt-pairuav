@@ -1,18 +1,23 @@
 # Reproduction Guide
 
-This repository exposes two separate workflows. Their claims and assets must not be mixed.
+This repository exposes two separate workflows. Their claims, configurations, and checkpoints must not be mixed.
 
-1. **Archived competition submission:** run the released task-head checkpoints on the released frozen test-pair
-   feature cache, then apply the historical 80 m gate and MAP-hard decoder. This reconstructs the topology of
-   Codabench submission `822841` (`0.002402`, rank 5).
-2. **Paper LaMP method:** start from fixed pair indexes, train with recorded seeds, and report validation statistics.
-   The historical competition training did not preserve RNG state, so deterministic retraining is a stability claim,
-   not a promise to regenerate the archived checkpoint byte-for-byte.
+1. **LaMP (challenge entry):** run the archived task-head checkpoints on the frozen test-pair feature cache, apply
+   the historical 80 m gate, then apply pose-set decoding. This is Codabench submission `822841` (`0.002402`, 5th
+   on the final leaderboard).
+2. **LaMP (ours):** train or evaluate the paper's simplified geometry-supervised pose head and single `[a,b]`
+   relative-error range head. Pose-set decoding is optional and is reported separately from the continuous method.
+
+The historical challenge training did not preserve RNG state. Exact challenge reproduction therefore uses archived
+checkpoints and SHA256 hashes; deterministic retraining demonstrates stability rather than checkpoint byte identity.
 
 ## 1. Environment
 
 ```bash
+conda create -n lamp-release python=3.10 -y
+conda activate lamp-release
 git submodule update --init --recursive
+pip install --upgrade pip
 pip install -e 3rdparty/vggt
 pip install -e .
 ```
@@ -26,20 +31,24 @@ python -m pairuav.index verify-manifest \
   --index-root data_index
 ```
 
+Obtain the image data from the official [PairUAV](https://github.com/YaxuanLi-cn/PairUAV) and
+[University-1652](https://github.com/layumi/University1652-Baseline) releases. No image dataset is mirrored here.
+
 ## 2. Authoritative Configurations
 
 | target | angle head | range head(s) | post-processing |
 |---|---|---|---|
-| archived submission | `configs/submission/angle_s0.json` | `range_c_rel_rich.json` + `range_b_mse_ab.json` | 80 m gate + MAP-hard |
-| paper LaMP | `configs/lamp/angle_s0.json` | `range_ab_relsmooth.json` | optional MAP-hard |
+| LaMP (challenge entry) | `configs/submission/angle_s0.json` | `range_c_rel_rich.json` + `range_b_mse_ab.json` | 80 m gate + pose-set decoding |
+| LaMP (ours) | `configs/lamp/angle_s0.json` | `range_ab_relsmooth.json` | optional pose-set decoding |
 
 The paper range head consumes only `[a,b]`. The archived C head consumes `[a,b,a-b,a*b]`. Root-level config files
 remain for compatibility with older commands, but the scripts below use only the grouped configurations.
 
 ## 3. Archived Submission, One Command
 
-Place the downloaded release bundle under `artifacts/competition_submission/`. The complete layout is documented in
-`artifacts/README.md`; the required model-level files are:
+Extract the downloaded weight bundle under `artifacts/competition_submission/`, then place the separately distributed
+frozen test-pair cache at `cache/test_pairs_s518/`. The complete layout is documented in `artifacts/README.md`; the
+required files are:
 
 ```text
 artifacts/competition_submission/
@@ -62,8 +71,8 @@ Run:
 bash scripts/reproduce_submission.sh
 ```
 
-The script verifies `MANIFEST.sha256`, runs the three archived heads directly on the cache, applies the historical
-gate, and writes:
+The script verifies the weight bundle's `MANIFEST.sha256`, checks the cache row count, runs the three archived heads
+directly on the cache, applies the historical gate, and writes:
 
 ```text
 outputs/submission_<timestamp>/
@@ -83,10 +92,14 @@ Custom locations can be passed positionally or through `PAIRUAV_SUBMISSION_ASSET
 bash scripts/reproduce_submission.sh /path/to/assets /path/to/test_feature_cache
 ```
 
-`pairuav.infer_test` remains available as a raw-image fallback, but it reruns VGGT and is not the default release
-workflow.
+The decoder weights in `pairuav/resources/p348_map_weights.json` are two scalar reliability weights fit on the
+released validation protocol. The 211 candidate poses are enumerated from training labels and the public
+University-1652 acquisition protocol. Neither component is derived from challenge test labels.
 
-## 4. Paper LaMP, One Command
+`pairuav.infer_test` remains available as a raw-image fallback, but it reruns VGGT and is not the default release
+workflow. The archived submission zip can be verified without rerunning the 2.77M-pair backbone pass.
+
+## 4. Train LaMP (ours), One Command
 
 Set the dataset and VGGT paths. `configs/paths.example.env` is a template:
 
@@ -137,7 +150,43 @@ bash scripts/train_lamp.sh
 
 Setting only one cache is rejected. A cache with a different pair order is also rejected.
 
-## 5. Important Entry Points
+## 5. Evaluate the Released LaMP Seeds
+
+Place `lamp_ours_3seed_valquick_v1` under `artifacts/lamp_ours_3seed/`. The bundle contains six task-head
+checkpoints and a frozen validation cache:
+
+```text
+artifacts/lamp_ours_3seed/
+├── MANIFEST.sha256
+├── weights/
+│   ├── seed2026/{angle/S0_rich_noc,range/R_ab_relsmooth}/...
+│   ├── seed2027/{angle/S0_rich_noc,range/R_ab_relsmooth}/...
+│   └── seed2028/{angle/S0_rich_noc,range/R_ab_relsmooth}/...
+└── validation/val_quick_2048/
+    ├── features.npy
+    ├── heading.npy
+    ├── range.npy
+    ├── json_paths.json
+    ├── meta.json
+    └── geometry.npz
+```
+
+Run all three seeds:
+
+```bash
+bash scripts/evaluate_lamp_release.sh
+```
+
+The script checks every bundle hash and validates cache order against `data_index/val_quick_2048.txt` before
+inference. Expected continuous mean +/- sample standard deviation is:
+
+| metric | expected (`n=3`) |
+|---|---:|
+| heading MAE | `0.433578 +/- 0.008438 deg` |
+| range MAE | `0.321625 +/- 0.022390 m` |
+| official validation final | `0.005907 +/- 0.000070` |
+
+## 6. Important Entry Points
 
 - `python -m pairuav.features`: frozen joint VGGT feature extraction;
 - `python -m pairuav.geometry`: closed-form 6-DoF label generation;
@@ -151,7 +200,7 @@ Setting only one cache is rejected. A cache with a different pair order is also 
 All training commands require an explicit config and refuse nonempty output directories. Existing caches and outputs
 are not overwritten implicitly.
 
-## 6. Verified Anchors
+## 7. Verified Anchors
 
 The archived hidden-test submission is `0.009135` before MAP-hard and `0.002402` after MAP-hard. Hidden labels are
 not available locally.
@@ -166,3 +215,45 @@ The validation values below all use `data_index/val_quick_2048.txt`:
 
 The second range head and 80 m gate are retained solely to reproduce the competition entry. Multi-seed analysis did
 not show a reliable gate benefit, and the paper method removes both.
+
+## 8. Generalization Probe Bundles
+
+Probe releases contain pooled frozen features, pair indexes, geometry/reference labels, and the scripts used to build
+those derived files. They do not redistribute University-1652, PairUAV, Google Earth, or SUES image data.
+
+| bundle | pairs | content |
+|---|---:|---|
+| `lamp_probe_on_manifold_v1` | `2048 x 3` | on-grid, off-frame, and off-grid trajectory tiers |
+| `lamp_probe_off_manifold_slope_v1` | `936` | slopes `-4/-6/-10/-12`, three buildings, all within-tour pairs |
+| `lamp_probe_sues200_v1` | `256` | 16 SUES-200 scenes x 16 pairs with independent COLMAP reference |
+
+Each archive has its own `MANIFEST.sha256`. Archive-level SHA256 values are in `release/ARTIFACTS.sha256`; the
+corresponding paper metrics are in Tables 3 and 4 and are mapped in `release/paper_artifact_map.json`.
+
+## 9. Paper Table to Custody Map
+
+Paths in the last column refer to the authors' complete experiment archive. Public users can reproduce the released
+rows through the commands and bundles in the middle column.
+
+| paper item | public command or bundle | internal custody source |
+|---|---|---|
+| Table 1, LaMP (challenge entry) | `scripts/reproduce_submission.sh`; bundle `lamp_challenge_entry_822841_v1` | `Eval_all/T11`, archived submission `822841` |
+| Table 1, LaMP (ours) | `scripts/evaluate_lamp_release.sh`; bundle `lamp_ours_3seed_valquick_v1` | `Eval_all/T07` and `T41` |
+| Table 1, official released baselines | metrics in release report | `T115_官方基线重训` |
+| Table 1, other frozen-backbone baselines | custody predictions and shared evaluator | `baseline-custody-20260714` |
+| Table 2, direct vs 6-DoF supervision | archived metrics | `Eval_all/T02`, `T03` |
+| Table 2, relative-error range head | released LaMP weights | `Eval_all/T07`, `T41` |
+| Table 2, pose-set decoding | fixed decoder resource | `Eval_all/T49` |
+| Table 2, challenge gate variant | archived challenge topology | `Eval_all/T11`, `T12` |
+| Table 3, trajectory tiers and discrete baseline | `lamp_probe_on_manifold_v1` | `T113_探针口径统一` / T107 scope |
+| Table 4, altered slopes and SUES transfer | slope and SUES probe bundles | `T113_探针口径统一` / T111 and SUES scopes |
+
+The same mapping is available in machine-readable form at `release/paper_artifact_map.json`.
+
+## 10. Audit Boundary
+
+- No image dataset or challenge test label is stored in Git history or a release bundle.
+- Checkpoints, feature caches, predictions, and probe archives are covered by SHA256 manifests.
+- Dataset-specific paths are supplied only through environment variables or CLI arguments.
+- Existing outputs are never overwritten without an explicit flag.
+- The source tree contains no credentials, proxy configuration, or machine-local `.env` file.

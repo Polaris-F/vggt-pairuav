@@ -36,6 +36,8 @@ python -m unittest discover -s tests -v
 
 The VGGT submodule is pinned to `a288dd0f14786c93483e45524328726ab7b1b4ce`. PairUAV-specific code lives under
 `pairuav/`; the submodule is treated as a read-only dependency.
+`VGGT_WEIGHT` in `configs/paths.env` must point to the locally downloaded official VGGT checkpoint.
+Official checkpoint page: https://huggingface.co/facebook/VGGT-1B/blob/main/model.pt
 
 ## Shortest verification paths
 

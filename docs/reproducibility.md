@@ -35,7 +35,12 @@ Precision is intentionally entry-specific:
 |---|---|---|
 | `train_angle` | `highest` | TF32 materially regresses the 6D rotation/geodesic objective |
 | `train_range` | `high` | matches the range-head training recipe |
-| `features`, `infer_test`, `infer_cache`, `eval_val` | `high` | matches the archived submission inference path |
+| `features`, `infer_test`, `infer_cache` | `high` | matches the archived submission inference path |
+| paper release evaluation | angle `highest`, range `highest` | matches the archived T07 prediction custody |
+
+`eval_val` exposes both settings independently. Its defaults remain `high/high` for compatibility with the archived
+submission evaluator; `scripts/evaluate_lamp_release.sh` selects `highest/highest` to reproduce the paper's T07
+validation row. This evaluation choice does not change the range training recipe, which uses `high`.
 
 Do not replace the angle training setting with a global TF32 default.
 

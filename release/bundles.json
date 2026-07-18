@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "generated_date": "2026-07-16",
+  "bundles": [
+    {
+      "name": "lamp_challenge_entry_822841_v1",
+      "archive": "lamp_challenge_entry_822841_v1.tar.gz",
+      "bytes": 150384058,
+      "sha256": "6ea08b145932cf9e879ff0702f3d76f340f6a9702cd56ea0704e73280993d47e",
+      "internal_manifest": "manifests/lamp_challenge_entry_822841_v1.sha256",
+      "contains_images": false,
+      "notes": "Archived task heads, decoder resources, and submissions 822840/822841. The 2.77M-pair test feature cache is a separate landing-area asset."
+    },
+    {
+      "name": "lamp_ours_3seed_valquick_v1",
+      "archive": "lamp_ours_3seed_valquick_v1.tar.gz",
+      "bytes": 289875809,
+      "sha256": "5649dd178f0414bfa4024397b4359c40524b2ba787e466a48c1f5f68a1496eb7",
+      "internal_manifest": "manifests/lamp_ours_3seed_valquick_v1.sha256",
+      "contains_images": false,
+      "notes": "Three released LaMP seeds and the derived val_quick_2048 frozen feature cache."
+    },
+    {
+      "name": "lamp_probe_on_manifold_v1",
+      "archive": "lamp_probe_on_manifold_v1.tar.gz",
+      "bytes": 92405955,
+      "sha256": "d087242f43dbfa4803299a0d070f36306653e5b349449c84e2a98c3cb54576ea",
+      "internal_manifest": "manifests/lamp_probe_on_manifold_v1.sha256",
+      "contains_images": false,
+      "notes": "Three matched 2,048-pair trajectory tiers with frozen features and geometry."
+    },
+    {
+      "name": "lamp_probe_off_manifold_slope_v1",
+      "archive": "lamp_probe_off_manifold_slope_v1.tar.gz",
+      "bytes": 14103800,
+      "sha256": "a76960a4449b01c41cd9a316c1c3f4e2c3419bfb72735c9c4c763ee19420b04d",
+      "internal_manifest": "manifests/lamp_probe_off_manifold_slope_v1.sha256",
+      "contains_images": false,
+      "notes": "A 936-pair altered-slope probe with frozen features, geometry, and regeneration metadata."
+    },
+    {
+      "name": "lamp_probe_sues200_v1",
+      "archive": "lamp_probe_sues200_v1.tar.gz",
+      "bytes": 3869133,
+      "sha256": "844a2a96c6da5945923c7bb25eeda01faf799fcc1c83e3aa6beca8f81b1e0cdc",
+      "internal_manifest": "manifests/lamp_probe_sues200_v1.sha256",
+      "contains_images": false,
+      "notes": "A 256-pair SUES-200 frozen-feature probe with independent COLMAP rotation reference."
+    }
+  ]
+}

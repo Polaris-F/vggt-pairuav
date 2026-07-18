@@ -99,6 +99,7 @@ python -m pairuav.index verify-manifest \
 
 完整 checkpoint、test feature cache 和历史提交文件体积较大,作为独立 release bundle 发布,不直接纳入
 Git 历史。
+
 Release bundle 下载地址：https://drive.google.com/drive/folders/1wXMSJjkHAnjN8C8y-MriVfGiTxgqDP3a?usp=drive_link
 
 下载后的目录结构见 [artifacts/README.md](artifacts/README.md)。

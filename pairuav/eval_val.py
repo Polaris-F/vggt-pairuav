@@ -63,15 +63,15 @@ def _metrics(pred_h, pred_r, gt_h, gt_r, alpha_a, rho_a, p_gt) -> dict[str, floa
     m = compute_metrics_np(pred_h, pred_r, gt_h, gt_r)
     err = np.linalg.norm(_pos(alpha_a + pred_h, rho_a + pred_r) - p_gt, axis=-1)
     out = {
-        "angle_rel": float(m["angle_rel_error"]),
-        "dist_rel": float(m["distance_rel_error"]),
-        "final": float(m["final_score"]),
-        "MAE_H_deg": float(np.abs(wrap180(pred_h - gt_h)).mean()),
-        "MAE_R_m": float(np.abs(pred_r - gt_r).mean()),
-        "endpoint_MAE_m": float(err.mean()),
+        "angle_rel": round(float(m["angle_rel_error"]), 6),
+        "dist_rel": round(float(m["distance_rel_error"]), 6),
+        "final": round(float(m["final_score"]), 6),
+        "MAE_H_deg": round(float(np.abs(wrap180(pred_h - gt_h)).mean()), 4),
+        "MAE_R_m": round(float(np.abs(pred_r - gt_r).mean()), 4),
+        "endpoint_MAE_m": round(float(err.mean()), 4),
     }
     for tau in SR_TAUS:
-        out[f"SR@{tau:g}m"] = float((err < tau).mean() * 100.0)
+        out[f"SR@{tau:g}m"] = round(float((err < tau).mean() * 100.0), 2)
     return out
 
 
@@ -101,23 +101,17 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         head_b, cfg_b, _range2_source = load_range_head(args.range2_ckpt, feat_dim, device)
         mode_b = str(cfg_b["input_mode"])
 
-    ph, pr_pose = [], []
-    torch.set_float32_matmul_precision(args.angle_matmul_precision)
+    ph, pr_pose, pr_c, pr_b = [], [], [], []
     for s in range(0, feats.shape[0], args.batch_size):
         x = torch.from_numpy(np.asarray(feats[s:s + args.batch_size], dtype=np.float32)).to(device)
         rot, trans = angle(x)
         ph.append(heading_from_rot_torch(rot).cpu().numpy().astype(np.float64))
         pr_pose.append((trans[:, 2] / G.COS45).cpu().numpy().astype(np.float64))
-    ph = np.concatenate(ph)
-    pr_pose = np.concatenate(pr_pose)
-
-    pr_c, pr_b = [], []
-    torch.set_float32_matmul_precision(args.range_matmul_precision)
-    for s in range(0, feats.shape[0], args.batch_size):
-        x = torch.from_numpy(np.asarray(feats[s:s + args.batch_size], dtype=np.float32)).to(device)
         pr_c.append(head_c(make_pair_input(x, mode_c)).cpu().numpy().astype(np.float64))
         if head_b is not None:
             pr_b.append(head_b(make_pair_input(x, mode_b)).cpu().numpy().astype(np.float64))
+    ph = np.concatenate(ph)
+    pr_pose = np.concatenate(pr_pose)
     pr_c = np.concatenate(pr_c)
 
     # ---- 连续配置 ----
@@ -140,7 +134,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         d_hat = map_decode(ph, pr, grid_d, grid_h, grid_r, float(w["w_h"]), float(w["w_r"]))
         dh, dr = wrap180(4.0 * d_hat.astype(np.float64)), -0.5 * d_hat.astype(np.float64)
         r = _metrics(dh, dr, gt_h, gt_r, alpha_a, rho_a, p_gt)
-        r["D_hit"] = float((d_hat == lab["d"].astype(np.int64)).mean() * 100.0)
+        r["D_hit"] = round(float((d_hat == lab["d"].astype(np.int64)).mean() * 100.0), 2)
         results[f"{name}_maphard"] = r
 
     main = "gate" if head_b is not None else "range_C"
@@ -155,10 +149,6 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         },
         "gate_threshold_m": args.threshold if head_b is not None else None,
         "gate_switched_rows": int((np.abs(pr_c) > args.threshold).sum()) if head_b is not None else None,
-        "matmul_precision": {
-            "angle": args.angle_matmul_precision,
-            "range": args.range_matmul_precision,
-        },
         "primary_system": f"{main} + maphard",
         "submitted_system": "gate + maphard" if head_b is not None else None,
         "results": results,
@@ -179,18 +169,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", default="cuda")
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
     p.add_argument(
-        "--angle-matmul-precision",
-        choices=("highest", "high", "medium"),
-        default="high",
-        help="float32 matmul precision for the pose head (default preserves archived submission inference)",
-    )
-    p.add_argument(
-        "--range-matmul-precision",
-        choices=("highest", "high", "medium"),
-        default="high",
-        help="float32 matmul precision for the range head",
-    )
-    p.add_argument(
         "--deterministic",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -204,7 +182,7 @@ def main() -> None:
     seed_everything(
         args.seed,
         deterministic=args.deterministic,
-        matmul_precision=args.angle_matmul_precision,
+        matmul_precision="high",
     )
     res = evaluate(args)
     print(json.dumps(res, indent=2, ensure_ascii=False), flush=True)

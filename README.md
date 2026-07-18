@@ -20,6 +20,10 @@
 
 VGGT 源码保存在 `3rdparty/vggt` 中,原则上保持不修改。所有 PairUAV 相关逻辑都应放在 `pairuav/` 下。
 
+`configs/paths.env` 中的 `VGGT_WEIGHT` 必须指向本地下载的官方 VGGT 模型权重文件。
+官方权重下载页面：
+https://huggingface.co/facebook/VGGT-1B/blob/main/model.pt
+
 训练、特征抽取和推理入口默认固定随机种子 `2026` 并记录复现设置。稳定性说明见
 [`docs/reproducibility.md`](docs/reproducibility.md)。
 

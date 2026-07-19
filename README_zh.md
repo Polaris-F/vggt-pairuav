@@ -1,7 +1,7 @@
 # vggt-pairuav
 <div align="center">
 
-[English README](README.md) · [复现说明](REPRODUCTION_zh.md) ·
+[English README](README.md) · [复现说明](REPRODUCE.md) ·
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)

@@ -1,6 +1,6 @@
 # vggt-pairuav
 
-[中文介绍](docs/README_zh.md) · [Reproduction](REPRODUCTION.md) 
+[中文介绍](README_zh.md) · [Reproduction](REPRODUCTION.md) 
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)

@@ -1,8 +1,10 @@
 # vggt-pairuav
 
-[中文介绍](#vggt-pairuav) · [Reproduction](REPRODUCE.md) · [Compliance](#compliance) · [Citation](#citation)
+[中文介绍](docs/README_zh.md) · [Reproduction](REPRODUCTION.md) 
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) [![License](https://img.shields.io/badge/License-MIT-4C9A2A)](LICENSE) ![Task](https://img.shields.io/badge/Task-PairUAV-0078D4)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+![Task](https://img.shields.io/badge/Task-PairUAV-blue?style=flat-square)
 
 This is the implementation code for the PairUAV task in the ACMMM 2026 UAV Workshop. It is mainly based on VGGT and combines a low-dimensional manifold assumption to model prior embeddings under conditions such as UAV spiral descent and approach around a target.
 

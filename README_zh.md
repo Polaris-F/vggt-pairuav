@@ -1,4 +1,4 @@
-# vggt-pairuav
+# LaMP: Last-Meter Manifold Pose Estimation
 <div align="center">
 
 [English README](README.md) · [复现说明](REPRODUCE.md) ·

@@ -1,89 +1,75 @@
 # vggt-pairuav
-<div align="center">
 
-[中文介绍](#vggt-pairuav) ·
-[Reproduction](REPRODUCE.md) ·
-[Compliance](#compliance) ·
-[Citation](#citation)
+[中文介绍](#vggt-pairuav) · [Reproduction](REPRODUCE.md) · [Compliance](#compliance) · [Citation](#citation)
 
-<br>
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) [![License](https://img.shields.io/badge/License-MIT-4C9A2A)](LICENSE) ![Task](https://img.shields.io/badge/Task-PairUAV-0078D4)
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-[![License](https://img.shields.io/badge/License-MIT-4C9A2A)](LICENSE)
-![Task](https://img.shields.io/badge/Task-PairUAV-0078D4)
+This is the implementation code for the PairUAV task in the ACMMM 2026 UAV Workshop. It is mainly based on VGGT and combines a low-dimensional manifold assumption to model prior embeddings under conditions such as UAV spiral descent and approach around a target.
 
-</div>
-
-这是 ACMMM 2026 UAV Workshop：PairUAV 任务 的 实现代码，主要基于 VGGT 结合低维流形假设来解决无人机绕目标螺旋下降逼近等条件下的先验嵌入建模。
-
-## 目录结构
+## Repository Structure
 
 ```text
 .
 ├── 3rdparty/
-│   └── vggt/        # 官方 VGGT submodule,固定在 a288dd0
-├── pairuav/         # PairUAV 专用 Python 包
-├── configs/         # submission / LaMP 两组权威配置
-├── data_index/      # 固定训练/验证 split 的相对路径清单
-├── scripts/         # 两条一键复现链路
-├── artifacts/       # 网盘大文件的本地落盘约定
-├── docs/            # 设计说明与实验记录
+│   └── vggt/        # Official VGGT submodule, pinned to a288dd0
+├── pairuav/         # PairUAV-specific Python package
+├── configs/         # Two authoritative configuration groups: submission / LaMP
+├── data_index/      # Relative-path lists for fixed training/validation splits
+├── scripts/         # Two one-command reproduction workflows
+├── artifacts/       # Local layout convention for large files distributed via cloud storage
+├── docs/            # Design notes and experiment records
 ├── REPRODUCE.md
 └── pyproject.toml
 ```
 
-VGGT 源码保存在 `3rdparty/vggt` 中,原则上保持不修改。所有 PairUAV 相关逻辑都应放在 `pairuav/` 下。
+The VGGT source code is stored in `3rdparty/vggt` and should generally remain unmodified. All PairUAV-related logic should be placed under `pairuav/`.
 
-`configs/paths.env` 中的 `VGGT_WEIGHT` 必须指向本地下载的官方 VGGT 模型权重文件。
-官方权重下载页面：
+`VGGT_WEIGHT` in `configs/paths.env` must point to the locally downloaded official VGGT model weight file.
+Official weight download page:
 https://huggingface.co/facebook/VGGT-1B/blob/main/model.pt
 
-训练、特征抽取和推理入口默认固定随机种子 `2026` 并记录复现设置。稳定性说明见
-[`docs/reproducibility.md`](docs/reproducibility.md)。
+The training, feature extraction, and inference entry points use the fixed random seed `2026` by default and record the reproducibility settings. See
+[`docs/reproducibility.md`](docs/reproducibility.md) for stability notes.
 
-## 复现口径
+## Reproduction Scope
 
-本项目明确区分两件事:
+This project explicitly distinguishes between two objectives:
 
-1. **复现比赛提交**:历史训练没有保存随机种子和 RNG 状态,因此精确复现依赖发布的
-   三个任务头 checkpoint、完整 SHA256 清单和固定后处理。官方隐藏测试成绩为 `0.002402`。
-2. **从头确定性重训论文方法**:当前代码默认 seed `2026`,角度头使用全 FP32 matmul,距离头使用
-   TF32 `high`。论文方法使用一个 `[a,b] + rel_smooth` 距离头;在固定验证集上连续输出为
-   `0.005907 +/- 0.000070`,加 MAP-hard 为 `0.003134 +/- 0.000119`(`n=3`)。
+1. **Reproducing the competition submission**: The historical training did not preserve the random seed or RNG state, so exact reproduction depends on the released three task-head checkpoints, the complete SHA256 manifest, and fixed post-processing. The official hidden-test score is `0.002402`.
+2. **Deterministically retraining the paper method from scratch**: The current code uses seed `2026` by default. The angle head uses full FP32 matmul, while the range head uses TF32 `high`. The paper method uses one `[a,b] + rel_smooth` range head; on the fixed validation set, the continuous output is `0.005907 +/- 0.000070`, and the result with MAP-hard is `0.003134 +/- 0.000119` (`n=3`).
 
-双距离头 + 80 m 门控入口仅为复现历史提交结构保留;多种子评测显示它相对单 C 头没有
-显著增益。
+The dual-range-head + 80 m gating entry point is retained only to reproduce the historical submission structure; multi-seed evaluation shows that it provides no significant gain over the single C head.
 
-## 目录职责
+## Directory Responsibilities
 
-- `3rdparty/`: 第三方代码区。目前只包含官方 VGGT submodule,视为只读依赖。
-- `pairuav/`: 我方实现区。数据读取、特征缓存、几何标签、任务头、指标、训练、推理和后处理都放这里。
-- `configs/`: 可复现实验配置和路径模板。公开配置描述方法参数,实际路径由环境变量或命令行参数提供。
-- `data_index/`: 固定训练/验证数据清单,用于重建 split 和校验特征 cache 顺序。
-- `docs/`: 设计说明、实验记录和结果追踪等非执行内容放这里。
-- `REPRODUCE.md`: 最终命令级复现流程。这里应保持简洁、可执行;细节和理由放到 `docs/`。
+- `3rdparty/`: Third-party code. It currently contains only the official VGGT submodule and is treated as a read-only dependency.
+- `pairuav/`: Our implementation. Data loading, feature caching, geometry labels, task heads, metrics, training, inference, and post-processing are all placed here.
+- `configs/`: Reproducible experiment configurations and path templates. Public configurations describe method parameters, while actual paths are provided through environment variables or command-line arguments.
+- `data_index/`: Fixed training/validation data lists used to reconstruct splits and verify the order of feature caches.
+- `docs/`: Non-executable content such as design notes, experiment records, and result tracking.
+- `REPRODUCE.md`: The final command-level reproduction workflow. It should remain concise and executable; details and rationale belong in `docs/`.
 
-## 两条一键流程
+## Two One-Command Workflows
 
-比赛提交复现使用下载后的三个任务头和官方 test pair 的冻结特征 cache,不重复运行 VGGT:
+Competition submission reproduction uses the downloaded three task heads and the frozen feature cache for the official test pairs, without rerunning VGGT:
 
 ```bash
 bash scripts/reproduce_submission.sh
 ```
 
-论文最终 LaMP 从固定 index 开始训练。默认使用 `32,768` 个训练 pair 和 `2,048` 个验证 pair;
-传入其他 index 即可更换数据规模:
+The final paper LaMP method starts training from a fixed index. By default, it uses `32,768` training pairs and `2,048` validation pairs;
+provide different index files to change the data scale:
 
 ```bash
 cp configs/paths.example.env configs/paths.env
-# 编辑 configs/paths.env 后:
+# After editing configs/paths.env:
 PAIRUAV_ENV_FILE=configs/paths.env bash scripts/train_lamp.sh
 # bash scripts/train_lamp.sh /path/to/train_index.txt /path/to/val_index.txt
 ```
 
-已有冻结特征时可设置 `PAIRUAV_TRAIN_CACHE` 和 `PAIRUAV_VAL_CACHE`,脚本会先按 index 校验顺序并跳过 VGGT。
+If frozen features are already available, set `PAIRUAV_TRAIN_CACHE` and `PAIRUAV_VAL_CACHE`; the script will first verify their order against the indexes and then skip VGGT.
 
-## 环境准备
+## Environment Setup
 
 ```bash
 git submodule update --init --recursive
@@ -91,18 +77,18 @@ pip install -e 3rdparty/vggt
 pip install -e .
 ```
 
-## 结果(Codabench 隐藏测试集,官方相对误差口径,越低越好)
+## Results (Codabench Hidden Test Set, Official Relative Error Metric, Lower Is Better)
 
-| 输出 | final | Codabench 提交 ID |
+| Output | final | Codabench Submission ID |
 | --- | ---: | --- |
-| 连续输出(冻结 VGGT + 角度头 + 距离头) | 0.009292 | 811088 |
-| 连续 + MAP-hard 后处理 | 0.002517 | 811089 |
-| 双距离头门控(gate)连续 | 0.009135 | 822840 |
-| gate + MAP-hard 后处理 | **0.002402** | 822841 |
+| Continuous output (frozen VGGT + angle head + range head) | 0.009292 | 811088 |
+| Continuous output + MAP-hard post-processing | 0.002517 | 811089 |
+| Gated continuous output with dual range heads | 0.009135 | 822840 |
+| Gate + MAP-hard post-processing | **0.002402** | 822841 |
 
-复现命令、已知验证集指标和字节级复现说明见 [REPRODUCE.md](REPRODUCE.md)。
+See [REPRODUCE.md](REPRODUCE.md) for reproduction commands, known validation-set metrics, and byte-level reproduction notes.
 
-## 自检
+## Self-Check
 
 ```bash
 python -m unittest discover -s tests -v
@@ -111,9 +97,8 @@ python -m pairuav.index verify-manifest \
   --index-root data_index
 ```
 
-完整 checkpoint、test feature cache 和历史提交文件体积较大,作为独立 release bundle 发布,不直接纳入
-Git 历史。
+The complete checkpoints, test feature cache, and historical submission files are large, so they are released as a separate release bundle and are not included directly in the Git history.
 
-Release bundle 下载地址：https://drive.google.com/drive/folders/1wXMSJjkHAnjN8C8y-MriVfGiTxgqDP3a?usp=drive_link
+Release bundle download: https://drive.google.com/drive/folders/1wXMSJjkHAnjN8C8y-MriVfGiTxgqDP3a?usp=drive_link
 
-下载后的目录结构见 [artifacts/README.md](artifacts/README.md)。
+See [artifacts/README.md](artifacts/README.md) for the directory structure after download.

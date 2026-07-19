@@ -1,3 +1,4 @@
+# vggt-pairuav
 <div align="center">
 
 [English README](README.md) · [复现说明](REPRODUCTION_zh.md) ·
@@ -8,9 +9,6 @@
 
 
 </div>
-
-# vggt-pairuav
-
 这是 ACMMM 2026 UAV Workshop：PairUAV 任务 的 实现代码，主要基于 VGGT 结合低维流形假设来解决无人机绕目标螺旋下降逼近等条件下的先验嵌入建模。
 
 ## 目录结构
